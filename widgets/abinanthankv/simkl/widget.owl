@@ -421,7 +421,8 @@ echo ok
   source up = cmd("[ -s ~/.config/omarchy-simkl/token ] && python3 ~/.cache/omalauncher-simkl/simkl.py fetch 7 ${sh(clientId)} || echo '[]'") every 4h json timeout 90s
 
   // device-start polls Simkl itself until the code is approved, denied or expires,
-  // then drops the pending code; run() refreshes this widget when it finishes.
+  // then drops the pending code. It's detached from run()'s 30s cap, so the tile
+  // switches over via the device.json/token file sources as soon as they change.
   let logged = trim(tok ?? "") != ""
   let loading = up == null
   let items = up ?? []
@@ -489,7 +490,7 @@ echo ok
         }
       } else {
         Text { text: "Connect your Simkl account to see the next week of TV, anime and movies."; style: small; color: muted }
-        Button { text: "login with Simkl"; onTap: run("python3 ~/.cache/omalauncher-simkl/simkl.py device-start ${sh(clientId)}") }
+        Button { text: "login with Simkl"; onTap: run("setsid python3 ~/.cache/omalauncher-simkl/simkl.py device-start ${sh(clientId)} >/dev/null 2>&1 &") }
       }
     }
   }
@@ -524,7 +525,7 @@ echo ok
           }
           Text { text: "This screen updates by itself once you approve."; style: label; color: muted }
         } else {
-          Button { text: "login with Simkl"; onTap: run("python3 ~/.cache/omalauncher-simkl/simkl.py device-start ${sh(clientId)}") }
+          Button { text: "login with Simkl"; onTap: run("setsid python3 ~/.cache/omalauncher-simkl/simkl.py device-start ${sh(clientId)} >/dev/null 2>&1 &") }
         }
       }
       Button { text: "close"; onTap: close() }
