@@ -3,7 +3,7 @@ widget "simkl" {
   order: 15
   size: 6x4
   minSize: 3x4
-  meta { owl: 6; description: "Your next week of TV, anime and movies from Simkl: tile, posters and full screen. Tap login, approve the code on simkl.com, done"; version: "1.0"; license: "MIT"; category: "time" }
+  meta { owl: 6; description: "Your next week of TV, anime and movies from Simkl: tile, posters and full screen. Tap login, approve the code on simkl.com, done"; version: "1.1"; license: "MIT"; category: "time" }
   requires { pacman: ["python", "curl"] }
 
   let clientId = "95a4064f1187b0dd4846827dbbf0268d12ea8cec58ca89e323021f87eda269ed"
@@ -17,11 +17,11 @@ cat > "$t" <<'OWL_SIMKL_PY'
 #!/usr/bin/env python3
 # Simkl upcoming-calendar helper for the omarchy widget.
 # Subcommands:
-#   device-start <client_id>  start login, write the code for the widget to show
-#   device-poll  <client_id>  poll once; on approval save the token locally
+#   device-start <client_id>  start login and poll until approved, denied or expired
 #   fetch <days> <client_id>  print upcoming episodes/releases as JSON
 #   logout                    forget the local token
 # Tokens live only in ~/.config/omarchy-simkl (mode 600); never in the widget.
+import io
 import json
 import os
 import subprocess
@@ -76,7 +76,7 @@ def _run_curl(cmd, timeout):
     if p.returncode != 0 and not code:
         raise urllib.error.URLError(p.stderr.decode(errors="replace")[:200])
     if code >= 400:
-        raise urllib.error.HTTPError("curl", code, "http %d" % code, {}, None)
+        raise urllib.error.HTTPError("curl", code, "http %d" % code, {}, io.BytesIO(body))
     return body
 
 
@@ -118,10 +118,11 @@ def write_secret(path, text):
 def cmd_device_start(cid):
     raw, _ = http_post("%s/oauth2/device?%s" % (API, base_params(cid)), {"client_id": cid})
     d = json.loads(raw)
-    if not d.get("user_code"):
+    if not d.get("user_code") or not d.get("device_code"):
         log("device-start failed:", d)
         return 1
-    write_secret(DCODE_F, d.get("device_code", ""))
+    dc = d["device_code"]
+    write_secret(DCODE_F, dc)
     pub = {"user_code": d.get("user_code"),
            "verification_uri": d.get("verification_uri", "https://simkl.com/pin"),
            "verification_uri_complete": d.get("verification_uri_complete")
@@ -130,31 +131,41 @@ def cmd_device_start(cid):
     with open(DEVICE_F, "w") as f:
         json.dump(pub, f)
     print("ok")
-    return 0
-
-
-def cmd_device_poll(cid):
-    dc = read_secret(DCODE_F)
-    if not dc:
-        return 0
+    # Poll here on the interval Simkl asks for, until the token arrives, the user
+    # denies it, or expires_in runs out; then drop the pending code either way.
     try:
-        raw, _ = http_post("%s/oauth2/token?%s" % (API, base_params(cid)),
-                           {"grant_type": DEVICE_GRANT, "client_id": cid, "device_code": dc})
-        tok = json.loads(raw)
-    except urllib.error.HTTPError:
+        interval = max(1, int(d.get("interval") or 5))
+        deadline = time.time() + int(d.get("expires_in") or 900)
+        while time.time() < deadline:
+            time.sleep(interval)
+            try:
+                raw, _ = http_post("%s/oauth2/token?%s" % (API, base_params(cid)),
+                                   {"grant_type": DEVICE_GRANT, "client_id": cid, "device_code": dc})
+                tok = json.loads(raw or b"{}")
+            except urllib.error.HTTPError as e:
+                try:
+                    tok = json.loads(e.read() or b"{}")
+                except Exception:
+                    tok = {}
+            if tok.get("access_token"):
+                write_secret(TOKEN_F, tok["access_token"])
+                if tok.get("refresh_token"):
+                    write_secret(REFRESH_F, tok["refresh_token"])
+                write_secret(EXPIRES_F, str(int(time.time()) + int(tok.get("expires_in") or 0)))
+                return 0
+            err = tok.get("error") or ""
+            if err == "slow_down":
+                interval += 5
+            elif err in ("access_denied", "expired_token"):
+                return 0
+            # authorization_pending (or no error): keep waiting
         return 0
-    if not tok.get("access_token"):
-        return 0
-    write_secret(TOKEN_F, tok["access_token"])
-    if tok.get("refresh_token"):
-        write_secret(REFRESH_F, tok["refresh_token"])
-    write_secret(EXPIRES_F, str(int(time.time()) + int(tok.get("expires_in") or 0)))
-    try:
-        os.remove(DCODE_F)
-    except OSError:
-        pass
-    print("ok")
-    return 0
+    finally:
+        for p in (DCODE_F, DEVICE_F):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
 
 
 def cmd_logout():
@@ -258,7 +269,7 @@ def poster_path(rel, sid):
     if os.path.exists(out) and os.path.getsize(out) > 0:
         return out
     try:
-        raw, _ = http_get("https://wsrv.nl/?url=https://simkl.in/posters/%s_m.webp&q=90" % rel,
+        raw, _ = http_get("https://simkl.in/posters/%s_m.webp" % rel,
                           {"User-Agent": UA}, timeout=30)
         with open(out, "wb") as f:
             f.write(raw)
@@ -339,13 +350,11 @@ def cmd_fetch(days, cid):
 def main():
     a = sys.argv[1:]
     if not a:
-        log("usage: simkl.py device-start|device-poll <client_id> | fetch <days> <client_id> | logout")
+        log("usage: simkl.py device-start <client_id> | fetch <days> <client_id> | logout")
         return 2
     cmd = a[0]
     if cmd == "device-start" and len(a) >= 2:
         return cmd_device_start(a[1])
-    if cmd == "device-poll" and len(a) >= 2:
-        return cmd_device_poll(a[1])
     if cmd == "logout":
         return cmd_logout()
     if cmd == "fetch" and len(a) >= 3:
@@ -370,20 +379,16 @@ echo ok
   source dev = file("~/.config/omarchy-simkl/device.json") json
   source tok = file("~/.config/omarchy-simkl/token")
 
-  state phase = "idle"
-
   source up = cmd("[ -s ~/.config/omarchy-simkl/token ] && python3 ~/.cache/omalauncher-simkl/simkl.py fetch 7 ${sh(clientId)} || echo '[]'") every 4h json timeout 90s
 
-  // Poll for approval only while a device code is outstanding (the helper exits at once otherwise).
-  source waiting = cmd("[ -s ~/.config/omarchy-simkl/device-code ] && python3 ~/.cache/omalauncher-simkl/simkl.py device-poll ${sh(clientId)} || true") every 5s
-
-  let logged = trim(tok ?? "") != "" || phase == "logged"
+  // device-start polls Simkl itself until the code is approved, denied or expires,
+  // then drops the pending code; run() refreshes this widget when it finishes.
+  let logged = trim(tok ?? "") != ""
   let loading = up == null
   let items = up ?? []
   let code = dev.user_code ?? ""
   let pinUrl = dev.verification_uri_complete ?? "https://simkl.com/pin"
 
-  when waiting == "ok" { phase = "logged" }
   when logged { refresh() }
 
   component Show(e) {
@@ -440,7 +445,7 @@ echo ok
         Button { text: "open in browser"; onTap: url(pinUrl) }
       } else {
         Text { text: "Connect your Simkl account to see the next week of TV, anime and movies."; style: small; color: muted }
-        Button { text: "login with Simkl"; onTap: { run("python3 ~/.cache/omalauncher-simkl/simkl.py device-start ${sh(clientId)}"); phase = "waiting" } }
+        Button { text: "login with Simkl"; onTap: run("python3 ~/.cache/omalauncher-simkl/simkl.py device-start ${sh(clientId)}") }
       }
     }
   }
@@ -462,7 +467,7 @@ echo ok
           }
         }
         Spacer { size: 6 }
-        Button { text: "sign out"; onTap: { run("python3 ~/.cache/omalauncher-simkl/simkl.py logout"); phase = "idle"; refresh() } }
+        Button { text: "sign out"; onTap: { run("python3 ~/.cache/omalauncher-simkl/simkl.py logout"); refresh() } }
       } else {
         Text { text: "Connect your Simkl account"; style: title }
         if code != "" {
@@ -471,7 +476,7 @@ echo ok
           Button { text: "open in browser"; onTap: url(pinUrl) }
           Text { text: "This screen updates by itself once you approve."; style: label; color: muted }
         } else {
-          Button { text: "login with Simkl"; onTap: { run("python3 ~/.cache/omalauncher-simkl/simkl.py device-start ${sh(clientId)}"); phase = "waiting" } }
+          Button { text: "login with Simkl"; onTap: run("python3 ~/.cache/omalauncher-simkl/simkl.py device-start ${sh(clientId)}") }
         }
       }
       Button { text: "close"; onTap: close() }
