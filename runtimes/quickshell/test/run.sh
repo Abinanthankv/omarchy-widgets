@@ -58,6 +58,20 @@ same() {
     process.exit(eq(a, b) ? 0 : 1)' "$1" "$2"
 }
 
+# Store widgets above Owl.js's level are left out until it's ported: Quickshell
+# shows them as needing an update, as an older launcher does.
+js_level=$(sed -n 's/^var LEVEL = \([0-9]*\).*/\1/p' "$owl")
+level() { awk 'match($0, /(^|[^A-Za-z0-9_])owl:[ \t]*[0-9]+/) { s = substr($0, RSTART, RLENGTH); sub(/.*:[ \t]*/, "", s); print s; found = 1; exit } END { if (!found) print 1 }' "$1"; }
+widgets=()
+for w in "$repo"/widgets/*/*/widget.owl; do
+  lv=$(level "$w")
+  if [ "$lv" -le "$js_level" ]; then
+    widgets+=("$w")
+  else
+    echo "skip - $(basename "$(dirname "$w")") needs owl $lv, Owl.js runs up to $js_level"
+  fi
+done
+
 failed=0
 check() {
   local name=$1 src=$2 fixture=$3
@@ -78,7 +92,7 @@ for f in "$here"/*.fixture.json; do
   case $name in edge | base) continue ;; esac
   check "$name with data" "$repo/widgets/simonschubert/$name/widget.owl" "$f"
 done
-for w in "$repo"/widgets/*/*/widget.owl; do
+for w in "${widgets[@]}"; do
   check "$(basename "$(dirname "$w")") without data" "$w" "$here/base.fixture.json"
 done
 
@@ -91,8 +105,8 @@ mine=$(node -e '
     const src = fs.readFileSync(f, "utf8")
     try { m.exports.compile(src); console.log("OK  " + f) }
     catch (e) { console.log("ERR " + f + ":" + m.exports.formatError(src, e).split("\n")[0]) }
-  }' "$owl" "$repo"/widgets/*/*/widget.owl "$here/edge.owl" | sort)
-theirs=$(java "${java_opts[@]}" -cp "$jar" dev.omalauncher.widgets.cli.MainKt check "$repo"/widgets/*/*/widget.owl "$here/edge.owl" 2>&1 |
+  }' "$owl" "${widgets[@]}" "$here/edge.owl" | sort)
+theirs=$(java "${java_opts[@]}" -cp "$jar" dev.omalauncher.widgets.cli.MainKt check "${widgets[@]}" "$here/edge.owl" 2>&1 |
   grep -E '^(ok|ERR)' | sed -E 's/^ok  ([^ ]+).*/OK  \1/' | sort)
 if [ "$mine" = "$theirs" ]; then
   echo "ok - owl check and Owl.js agree on every widget"

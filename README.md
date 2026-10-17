@@ -65,7 +65,7 @@ app "notes" {
 }
 ```
 
-Check it with `java -jar tools/owl-apps.jar review . apps/<you>/<name>/app.owl`. Its previews are
+Check it with `java -jar tools/owl.jar review . apps/<you>/<name>/app.owl`. Its previews are
 pictures of the whole view at a phone's size, which `scripts/store-previews.sh` makes too. A widget
 and an app can't share a name. Launchers from before apps (0.7.2 and older) only read `index.json`, so they never see one.
 
@@ -78,6 +78,10 @@ and an app can't share a name. Launchers from before apps (0.7.2 and older) only
   (`news`, `dev`, `productivity`, `time`, `world`, `sport`, `finance`, `media`, `games`, `pets`, `fun`, `home` or `system`) so it shows under that tab in the store; without one it goes under "other".
 - Every package the commands need goes in `requires`. CI checks that the packages exist in Arch
   and warns about programs whose package isn't declared.
+- `meta { owl: N }` is the language level the widget needs (none is level 1). It has to be one
+  that [owl.txt](owl.txt) lists as supported; a level marked deprecated there is only allowed for
+  widgets that aren't changed. A launcher older than a widget's level can't install or update it,
+  so raise `owl` only when the widget uses something that needs it.
 - Updates raise the version. If an update changes the commands or packages, the app asks users to
   approve it again.
 - Values go into commands as `${sh(value)}`, outside any quotes, or as numbers (`${int(n)}`):
@@ -103,9 +107,8 @@ apps/<author>/<name>/app.owl          an app, with preview.png and previews/ lik
 order.txt                             the order of the store
 docs/LANGUAGE.md                      the widget language
 w/index.html                          where a shared widget's link lands: shows it, opens the launcher
-tools/owl.jar                         the checker CI runs on widgets (built from the app's owl module)
-tools/owl-apps.jar                    the newer checker CI runs on apps (owl 8); it replaces owl.jar
-                                      once the launcher that reads apps is out
+owl.txt                               the owl levels the store takes, and the launcher that runs each
+tools/owl.jar                         the checker CI runs (built from the latest launcher release's owl module)
 runtimes/quickshell/                  OWL for Quickshell on Linux: the same widgets, drawn
                                       by Quickshell (Omarchy Mobile's widget board uses it)
 ```

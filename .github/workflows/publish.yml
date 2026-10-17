@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # owl-apps.jar dates each app by the commit that added it.
+          # owl.jar dates each app by the commit that added it.
           fetch-depth: 0
       - uses: actions/setup-java@v5
         with:
@@ -43,7 +43,7 @@ jobs:
       - name: Catalog
         run: |
           java -jar tools/owl.jar index .
-          java -jar tools/owl-apps.jar index . --apps
+          java -jar tools/owl.jar index . --apps
       - name: Site
         run: |
           mkdir _site

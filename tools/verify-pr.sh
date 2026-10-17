@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Checks a pull request's widgets with this checkout's tools/owl.jar, and its apps
-# with tools/owl-apps.jar. Nothing from the pull request is checked out or run: its
+# Checks a pull request's widgets and apps with this checkout's tools/owl.jar and
+# the levels in owl.txt. Nothing from the pull request is checked out or run: its
 # folders are read out of git as data into a scratch folder, and the checkers read
 # them there.
 #
@@ -25,6 +25,12 @@ trusted() { [ "$role" = OWNER ] || [ "$role" = MEMBER ]; }
 echo "pull request #$pr at $head, by @$login ($role)" >&2
 bad=0
 fail() { echo "::error file=$1::$2"; bad=1; }
+
+# The level in a file's meta { owl: N }, 1 without one; owl.txt says which levels the store takes.
+level() { awk 'match($0, /(^|[^A-Za-z0-9_])owl:[ \t]*[0-9]+/) { s = substr($0, RSTART, RLENGTH); sub(/.*:[ \t]*/, "", s); print s; found = 1; exit } END { if (!found) print 1 }' "$1"; }
+levels=$(sed 's/#.*//' owl.txt | awk 'NF >= 2')
+newest=$(echo "$levels" | sort -n | tail -1)
+oldest=$(echo "$levels" | awk '$2 == "supported" { print $1 }' | sort -n | head -1)
 
 # Every file the pull request touches, not only those under widgets/ and apps/.
 folders=""
@@ -80,17 +86,22 @@ for dir in $(echo "$folders" | tr ' ' '\n' | sort -u); do
         if git cat-file -e "$base:$path" 2>/dev/null; then
           mkdir -p "$out/base/$(dirname "$path")"
           git cat-file blob "$base:$path" > "$out/base/$path"
+        fi
+        # Only a new or changed file has to move off a deprecated level.
+        if ! cmp -s "$out/$path" "$out/base/$path"; then
+          lv=$(level "$out/$path")
+          case $(echo "$levels" | awk -v l="$lv" '$1 == l { print $2 }') in
+            supported) ;;
+            deprecated) fail "$path" "owl $lv is deprecated: a new $kind or an update needs owl $oldest or newer (see owl.txt)" ;;
+            *) fail "$path" "the store takes up to owl $(echo "$newest" | awk '{ print $1 " (launcher " $3 ")" }'), and this needs owl $lv (see owl.txt)" ;;
+          esac
         fi ;;
     esac
   done < <(git ls-tree -r "$head" -- "$dir/")
 done
 
-if [ -n "$owls" ]; then
-  java -jar tools/owl.jar review "$out" $owls --base "$out/base" || bad=1
-fi
-# Apps are owl 8, which tools/owl.jar predates; owl-apps.jar takes over both once that's out.
-if [ -n "$apps" ]; then
-  java -jar tools/owl-apps.jar review "$out" $apps --base "$out/base" || bad=1
+if [ -n "$owls$apps" ]; then
+  java -jar tools/owl.jar review "$out" $owls $apps --base "$out/base" || bad=1
 fi
 
 # Themed previews come from the launcher, which runs the widget to draw them: an emulator's job, after
