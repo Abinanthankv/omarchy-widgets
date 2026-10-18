@@ -2,7 +2,7 @@ widget "currency" {
   meta {
     owl: 8
     description: "Kurs mata uang & perbandingan forex global dengan grafik live transparan"
-    version: "4.3"
+    version: "4.4"
     license: "MIT"
     category: "finance"
   }
@@ -53,7 +53,7 @@ case "$sp" in
 esac
 
 # 1. Fetch live rate, previous close & historical points from Yahoo Finance chart
-res=$(curl -sf -m 6 -H "User-Agent: Mozilla/5.0" "https://query1.finance.yahoo.com/v8/finance/chart/${sym}=X?range=${y_range}&interval=${y_interval}")
+res=$(curl -sf -m 6 -A omalauncher-currency "https://query1.finance.yahoo.com/v8/finance/chart/${sym}=X?range=${y_range}&interval=${y_interval}")
 
 if [ -n "$res" ] && echo "$res" | jq -e '.chart.result[0].meta.regularMarketPrice' >/dev/null 2>&1; then
   echo "$res" | jq -c --arg sym "$sym" --arg b "$b" --arg q "$q" '
@@ -232,7 +232,7 @@ echo "$res" | jq -c \
     pinned: $pin_item
   }
 '
-""") every 10m json timeout 25s status
+""") every 1h json timeout 25s status
 
   // 3. Official Currency Names from Frankfurter API
   source filters = cmd("""
