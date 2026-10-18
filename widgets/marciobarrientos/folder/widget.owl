@@ -1,11 +1,11 @@
 widget "folder" {
-  meta { owl: 9; description: "Folder of Android apps: custom title, reorder, 3-5 columns, border and corners. Optional duplicate/sync buttons write copies of this widget file into the widgets folder."; version: "1.0"; license: "MIT"; category: "productivity" }
+  meta { owl: 9; description: "Folder of Android apps: custom title, reorder, 3-5 columns, border and corners. Optional duplicate/sync buttons write copies of this widget file into the widgets folder."; version: "1.1"; license: "MIT"; category: "productivity" }
   page: 1
   order: 3
   size: 6x3
   minSize: 3x2
 
-  let isMain = true
+  let folderMain = true
   let copyN = 0
   source apps = android.apps every 1m
   state title = "apps" persist
@@ -24,6 +24,8 @@ widget "folder" {
 
   let all = (apps ?? []).sortBy(a => lower(a.name))
   let items = picks.map(k => find(all, a => a.key == k)).filter(a => a != null)
+  // the picks still installed: the list buttons edit these, so an uninstalled app drops out
+  let keys = items.map(a => a.key)
   let rad = corner == "edge" ? 0 : corner == "soft" ? 6 : 12
   let cw = floor(((tileWidth ?? 320) - 24 - 8 * (colCount - 1)) / colCount)
   let lines = range(ceil(len(items) / colCount)).map(r => items.drop(r * colCount).take(colCount))
@@ -72,7 +74,7 @@ widget "folder" {
                   borderColor: border
                   radius: rad
                   onTap: androidApp(a.key)
-                  Image { src: a.icon; size: 44; tint: accent }
+                  Image { src: a.icon; size: 44 }
                   if names { Text { text: a.name; style: small; align: center; maxLines: 1 } }
                 }
               }
@@ -84,7 +86,7 @@ widget "folder" {
   }
 
   screen {
-    title: isMain ? "folder · v1.0" : "folder · v1.0 (copy)"
+    title: folderMain ? "folder · v1.1" : "folder · v1.1 (copy)"
     Box {
     Column {
       scroll: true
@@ -147,9 +149,9 @@ widget "folder" {
           gap: 8
           Image { src: a.icon; size: 32 }
           Text { text: a.name; weight: 1; maxLines: 1 }
-          Button { text: "↑"; width: 40; visible: i > 0; onTap: picks = set(set(picks, i, picks[i - 1]), i - 1, picks[i]) }
-          Button { text: "↓"; width: 40; visible: i < len(picks) - 1; onTap: picks = set(set(picks, i, picks[i + 1]), i + 1, picks[i]) }
-          Button { text: "✕"; width: 40; color: red; onTap: picks = remove(picks, i) }
+          Button { text: "↑"; width: 40; visible: i > 0; onTap: picks = set(set(keys, i, keys[i - 1]), i - 1, keys[i]) }
+          Button { text: "↓"; width: 40; visible: i < len(keys) - 1; onTap: picks = set(set(keys, i, keys[i + 1]), i + 1, keys[i]) }
+          Button { text: "✕"; width: 40; color: red; onTap: picks = remove(keys, i) }
         }
       }
       Spacer { height: 12 }
@@ -177,8 +179,8 @@ widget "folder" {
         align: center
         gap: 8
         fill: width
-        if !isMain {
-          Button { text: "sync widget"; weight: 1; onTap: { synced = true; run("n=${int(copyN)}; d=~/.config/omalauncher/widgets; m=$(grep -l '^  let isMain = true$' $d/*.owl | head -1); case $m in ?*) ;; *) exit 1;; esac; f=$d/$n-folder.owl; pg=$(grep -m1 '^  page:' $f | tr -dc 0-9); { head -1 $f; tail -n +2 $m | sed -e 's/^  order: .*$/  order: '$n'/' -e 's/^  page: .*$/  page: '$pg'/' -e 's/^  let isMain = true$/  let isMain = false/' -e 's/^  let copyN = 0$/  let copyN = '$n'/'; } > $f.tmp && mv $f.tmp $f") } }
+        if !folderMain {
+          Button { text: "sync widget"; weight: 1; onTap: { synced = true; run("n=${int(copyN)}; d=~/.config/omalauncher/widgets; m=$(grep -l '^  let folderMain = true$' $d/*.owl | head -1); case $m in ?*) ;; *) exit 1;; esac; f=$d/$n-folder.owl; pg=$(grep -m1 '^  page:' $f | tr -dc 0-9); { head -1 $f; tail -n +2 $m | sed -e 's/^  order: .*$/  order: '$n'/' -e 's/^  page: .*$/  page: '$pg'/' -e 's/^  let folderMain = true$/  let folderMain = false/' -e 's/^  let copyN = 0$/  let copyN = '$n'/'; } > $f.tmp && mv $f.tmp $f") } }
         }
         Button { text: "duplicate widget"; weight: 1; onTap: askCopy = true }
       }
@@ -209,7 +211,7 @@ widget "folder" {
           Row {
             gap: 8
             Button { text: "cancel"; weight: 1; onTap: askCopy = false }
-            Button { text: "create"; weight: 1; onTap: { askCopy = false; run("p=${int(copyPage)}; d=~/.config/omalauncher/widgets; m=$(grep -l '^  let isMain = true$' $d/*.owl | head -1); case $m in ?*) ;; *) exit 1;; esac; for n in $(seq 31 99); do f=$d/$n-folder.owl; [ -e $f ] || break; done; sed -e 's/^  order: .*$/  order: '$n'/' -e 's/^  page: .*$/  page: '$p'/' -e 's/^  let isMain = true$/  let isMain = false/' -e 's/^  let copyN = 0$/  let copyN = '$n'/' $m > $f.tmp && mv $f.tmp $f"); madeCopy = true } }
+            Button { text: "create"; weight: 1; onTap: { askCopy = false; run("p=${int(copyPage)}; d=~/.config/omalauncher/widgets; m=$(grep -l '^  let folderMain = true$' $d/*.owl | head -1); case $m in ?*) ;; *) exit 1;; esac; for n in $(seq 31 99); do f=$d/$n-folder.owl; [ -e $f ] || break; done; sed -e 's/^  order: .*$/  order: '$n'/' -e 's/^  page: .*$/  page: '$p'/' -e 's/^  let folderMain = true$/  let folderMain = false/' -e 's/^  let copyN = 0$/  let copyN = '$n'/' $m > $f.tmp && mv $f.tmp $f"); madeCopy = true } }
           }
         }
       }
