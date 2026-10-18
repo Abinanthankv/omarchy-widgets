@@ -4,7 +4,7 @@ widget "cleaner" {
   size: 3x3
   minSize: 3x2
 
-  meta { owl: 8; description: "Finds caches, old packages and leftovers that are safe to delete, and frees the space with a tap, daily or weekly."; version: "1.0"; license: "MIT"; category: "system" }
+  meta { owl: 8; description: "Finds caches, old packages and leftovers that are safe to delete, and frees the space with a tap, daily or weekly."; version: "1.1"; license: "MIT"; category: "system" }
 
   requires { pacman: ["pacman-contrib", "util-linux", "findutils", "coreutils", "gawk"] }
 
@@ -19,12 +19,16 @@ widget "cleaner" {
     H=$HOME
     D=$H/.cache/cleaner
     SAFE="pkg-old uv npm pip yay go thumbs trash tmp logs core"
+    AUTO="pkg-old uv npm pip yay go thumbs tmp logs core"   # a scheduled clean leaves the trash alone
     avail() { df -B1 --output=avail / | tail -1 | tr -d ' '; }
     status() { printf '{"target":"%s","running":"%s","started":%s,"freed":%s,"at":%s}' "$1" "$2" "$3" "$4" "$5" > "$D/status.tmp" && mv "$D/status.tmp" "$D/status.json"; }
     sz() { du -sbc "$@" 2>/dev/null | tail -1 | cut -f1; }
     szlist() { while IFS= read -r f; do du -sb "$f" 2>/dev/null; done | awk '{ t += $1 } END { print t + 0 }'; }
     tmpold() {
-      find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mmin +1440 ! -type s ! -name '.bun-*' ! -name '.guest-shell-err-*' ! -name 'tmux-*' ! -name 'claude-*' ! -name 'proot-*' ! -name '.X*' ! -name '.ICE*' ! -name 'hsperfdata_*' ! -name 'omalauncher*' ! -name 'owl-*' ! -name 'pulse*' ! -name 'systemd-*' ! -name 'ssh-*' 2>/dev/null
+      find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mtime +7 ! -type s ! -name '.bun-*' ! -name '.guest-shell-err-*' ! -name 'tmux-*' ! -name 'claude-*' ! -name 'proot-*' ! -name '.X*' ! -name '.ICE*' ! -name 'hsperfdata_*' ! -name 'omalauncher*' ! -name 'owl-*' ! -name 'pulse*' ! -name 'systemd-*' ! -name 'ssh-*' 2>/dev/null | while IFS= read -r f; do
+        # a directory's own time doesn't change with files deeper in, so one still in use can look old
+        [ -z "$(find "$f" -mtime -8 -print -quit; find "$f" -type s -print -quit)" ] && echo "$f"
+      done
       # what a Linux session (proot) leaves behind once its process is gone
       for f in /tmp/proot-*; do [ -e "$f" ] && ! kill -0 "$(basename "$f" | awk -F- '{ print $2 }')" 2>/dev/null && echo "$f"; done
       for f in /tmp/.guest-shell-err-*; do [ -e "$f" ] && ! kill -0 "$(basename "$f" | awk -F- '{ print $NF }')" 2>/dev/null && echo "$f"; done
@@ -79,7 +83,7 @@ widget "cleaner" {
         date +%s%N;;
       work)
         exec 9>"$D/lock"; flock -n 9 || exit 0
-        [ "$2" = safe ] && ids=$SAFE || ids=$2
+        case $2 in safe) ids=$SAFE;; auto) ids=$AUTO;; *) ids=$2;; esac
         t0=$(date +%s); a0=$(avail)
         for i in $ids; do status "$2" "$i" "$t0" 0 0; clean "$i"; done
         f=$(( $(avail) - a0 )); [ "$f" -lt 0 ] && f=0
@@ -96,7 +100,7 @@ widget "cleaner" {
     {id: "go", name: "Go build cache", desc: "compiled objects; rebuilt when needed"},
     {id: "thumbs", name: "thumbnails", desc: "image previews; drawn again when needed"},
     {id: "trash", name: "trash", desc: "files moved to the trash"},
-    {id: "tmp", name: "old temp files", desc: "/tmp and /var/tmp files untouched for a day, and what closed Linux sessions left"},
+    {id: "tmp", name: "old temp files", desc: "/tmp and /var/tmp files untouched for a week, and what closed Linux sessions left"},
     {id: "logs", name: "rotated logs", desc: "old compressed logs in /var/log"},
     {id: "core", name: "crash dumps", desc: "systemd core dumps"}
   ]
@@ -106,7 +110,7 @@ widget "cleaner" {
   source st = file("~/.cache/cleaner/status.json") json
   state pending = ""    // tapped, until the cleaner has written its status
   state starting = null
-  state freq = "daily" persist   // off, daily or weekly: runs "clean all"
+  state freq = "off" persist   // off, daily or weekly: runs "clean all" but the trash
   state nextAt = 0 persist
 
   let items = scan.items ?? {}
@@ -119,7 +123,7 @@ widget "cleaner" {
   // a status still "running" after an hour is from a cleaner that was killed
   let live = st.running != null && st.running != "" && now != null && now - st.started < 3600
   let busy = pending != "" ? pending : live ? st.running : ""
-  let busyName = busy == "safe" ? "all" : busy == "pkg-all" ? "package cache" : (defs.find(d => d.id == busy).name ?? busy)
+  let busyName = busy == "safe" || busy == "auto" ? "all" : busy == "pkg-all" ? "package cache" : (defs.find(d => d.id == busy).name ?? busy)
 
   on starting { pending = "" }
   // the time the last clean finished; null while one runs, so it changes when one ends
@@ -132,7 +136,7 @@ widget "cleaner" {
     // a time missed while the launcher was off runs once at start, then moves on from now
     nextAt = freq == "off" ? 0 : max(nextAt, now ?? 0) + interval
     // only set while freq isn't off; a clean already running holds the lock, so this one is skipped
-    pending = "safe"; starting = run("bash -c ${sh(script)} cleaner start safe")
+    pending = "auto"; starting = run("bash -c ${sh(script)} cleaner start auto")
   }
 
   onTap: screen()
@@ -202,7 +206,7 @@ widget "cleaner" {
         if busy == "" && safeTotal > 0 {
           Button { text: "clean all"; color: green; width: 110; onTap: { pending = "safe"; starting = run("bash -c ${sh(script)} cleaner start safe") } }
         } else {
-          Button { text: busy == "safe" ? "cleaning…" : "clean all"; color: muted; width: 110 }
+          Button { text: busy == "safe" || busy == "auto" ? "cleaning…" : "clean all"; color: muted; width: 110 }
         }
       }
 
@@ -274,7 +278,7 @@ widget "cleaner" {
           weight: 1
           Text { text: "automatic clean"; bold: true }
           Text {
-            text: freq == "off" ? "tap to run \"clean all\" daily or weekly" : nextAt > 0 ? "${freq}, next ${fmtTime(nextAt, "EEE d MMM HH:mm")}" : freq
+            text: freq == "off" ? "tap to clean all but the trash daily or weekly" : nextAt > 0 ? "${freq}, next ${fmtTime(nextAt, "EEE d MMM HH:mm")}" : freq
             style: small; color: muted
           }
         }
