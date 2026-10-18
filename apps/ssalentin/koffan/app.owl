@@ -1,8 +1,8 @@
 app "koffan" {
   meta { owl: 9; description: "A shopping list for a self-hosted Koffan server: the lists, their sections and products, ticking things off in the shop and adding new ones, over Koffan's REST API"; version: "1.0"; license: "MIT"; category: "productivity" }
-  title: open == 0 ? "koffan" : listName
-  back: open != 0
-  onBack: { open = 0; adding = false }
+  title: setup ? "koffan setup" : open == 0 ? "koffan" : listName
+  back: open != 0 || setup
+  onBack: { if setup { setup = false } else { open = 0; adding = false } }
   edge: true
   icon: """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
     <rect x="2" y="2" width="44" height="44" rx="12" ry="12" fill="#F2A33C"/>
@@ -22,17 +22,8 @@ app "koffan" {
   state adding = false
   state newName = ""
   state sectionId = 0
-  // Products already in the cart are left out of the list (see showTicked below), and each
-  // section's counts and ticked products are kept here, so they stay right.
+  // Whether products already in the cart are shown in the list.
   state showTicked = false persist
-  state secCounts = {}
-  state secDone = {}
-  state secTicked = {}
-  state loadSec = 0
-  // The list whose sections the counts belong to.
-  state seenFor = 0
-  // A new list starts with nothing known about its sections.
-  when listId != seenFor { secCounts = {}; secDone = {}; secTicked = {}; loadSec = 0; seenFor = listId }
 
   // What was last loaded from the server, kept so the app opens at once and reads offline.
   state savedLists = [] persist
@@ -57,8 +48,6 @@ app "koffan" {
   source lists = http(ready ? "${server}/api/v1/lists" : null, auth) every 15s json timeout 15s status
   source sections = http(ready && open == 1 ? "${server}/api/v1/lists/" + int(listId) + "/sections" : null, auth) every 15s json timeout 15s status
   source history = http(ready && open == 1 ? "${server}/api/v1/history" : null, auth) every 5m json timeout 15s status
-  // All of one section, to count it and to show its ticked products.
-  source sectionItems = http(ready && loadSec != 0 ? "${server}/api/v1/sections/" + int(loadSec) + "/items" : null, auth) every 1m json timeout 15s status
   let liveLists = lists != null && lists.ok ? [(lists.out.lists ?? [])].flatten() : null
   let liveHistory = history != null && history.ok ? ((history.out.items ?? [])).take(60) : null
   when liveLists != null && liveLists != savedLists { savedLists = liveLists }
@@ -69,22 +58,6 @@ app "koffan" {
   let allLists = lists != null ? (liveLists ?? []) : savedLists
   let secs = sections != null && sections.ok ? [(sections.out.sections ?? [])].flatten() : []
   let hist = history != null ? (liveHistory ?? savedHistory) : savedHistory
-
-  // The list only sends a section's products still to get; what is already in the cart is
-  // missing from it. So each section's counts are kept here, and a section is read in full
-  // (one per tap) to fill them: the section's own line does that.
-  let fetched = sectionItems != null && sectionItems.ok && any(sectionItems.out.items ?? [], i => i.section_id == loadSec)
-  // What a section read gave: its size and how much of it is in the cart, and, while ticked
-  // ones are on show, those products (the list itself leaves them out).
-  when fetched {
-    let all = sectionItems.out.items
-    if any(all, i => i.section_id == loadSec) {
-      secCounts = set(secCounts, loadSec, len(all))
-      secDone = set(secDone, loadSec, count(all, i => i.completed))
-      if showTicked { secTicked = set(secTicked, loadSec, all.filter(i => i.completed)) }
-      loadSec = 0
-    }
-  }
 
   let cur = first(allLists.filter(l => l.id == listId))
   let listName = cur == null ? "koffan" : cur.name
@@ -179,11 +152,11 @@ app "koffan" {
     }
   }
 
-  // Tapping a section's line ticks all of it or takes every tick off; that gives the whole
-  // section back, so its counts are known after it.
+  // Tapping a section's line ticks all of it or takes every tick off. The server sends every
+  // product of a section, ticked ones too, so the counts come straight from it.
   component SectionHead(s) {
-    let done = secDone[s.id] ?? 0
-    let total = max(secCounts[s.id] ?? 0, len(s.items ?? []))
+    let done = count(s.items ?? [], i => i.completed)
+    let total = len(s.items ?? [])
     let full = total > 0 && done >= total
     Row {
       gap: 8
@@ -192,7 +165,6 @@ app "koffan" {
       onTap: {
         errWhat = (full ? "untick" : "tick") + " all of ${s.name}"
         asked = post("${server}/api/v1/sections/" + int(s.id) + "/" + (full ? "uncheck-all" : "check-all"), {}, auth)
-        loadSec = s.id
         refresh()
         haptic()
       }
@@ -215,13 +187,12 @@ app "koffan" {
         Text { text: "no sections in this list — make one on the koffan web page"; style: muted; padding: [0, 4] }
       }
       for s in secs key s.id {
-        if showTicked || len(s.items ?? []) > 0 || (secCounts[s.id] ?? 0) == 0 {
+        let items = s.items ?? []
+        let left = items.filter(x => !x.completed)
+        if showTicked || len(left) > 0 || len(items) == 0 {
           SectionHead { s: s }
-          for i in (showTicked ? (s.items ?? []) : (s.items ?? []).filter(x => !x.completed)) key i.id { Line { i: i } }
-          if showTicked {
-            for i in (secTicked[s.id] ?? []) key i.id { Line { i: i } }
-          }
-          if (secCounts[s.id] ?? 0) == 0 && len(s.items ?? []) == 0 {
+          for i in (showTicked ? items : left) key i.id { Line { i: i } }
+          if len(items) == 0 {
             Text { text: "nothing here yet"; style: small; color: muted; padding: [0, 30] }
           }
         } else {
@@ -232,18 +203,17 @@ app "koffan" {
             onTap: {
               errWhat = "untick all of ${s.name}"
               asked = post("${server}/api/v1/sections/" + int(s.id) + "/uncheck-all", {}, auth)
-              loadSec = s.id
               refresh()
               haptic()
             }
             Text { text: "✓ ${s.name}"; style: label; color: green; weight: 1; maxLines: 1 }
-            Text { text: "all ${secCounts[s.id] ?? 0} in the cart"; style: small; color: green; width: 170 }
+            Text { text: "all ${len(items)} in the cart"; style: small; color: green; width: 170 }
             Text { text: "untick all"; style: small; color: accent; width: 110; align: end }
           }
         }
         Spacer { height: 8 }
       }
-      if len(secs) > 0 && len(secs.filter(s => len((s.items ?? []).filter(i => !i.completed)) > 0)) == 0 && len(secs.filter(s => (secCounts[s.id] ?? 0) > 0 && (secDone[s.id] ?? 0) < (secCounts[s.id] ?? 0))) == 0 {
+      if any(secs, s => len(s.items ?? []) > 0) && !any(secs, s => any(s.items ?? [], i => !i.completed)) {
         Text { text: "everything is in the cart"; style: muted; padding: [10, 4] }
       }
       Row {
@@ -251,7 +221,7 @@ app "koffan" {
         align: center
         padding: [12, 8, 12, 4]
         Text { text: showTicked ? "ticked ones are shown" : "ticked ones are hidden"; style: small; color: muted; weight: 1 }
-        Button { text: showTicked ? "hide ticked" : "show ticked"; onTap: { showTicked = !showTicked; loadSec = showTicked ? (first(secs.map(s => s.id)) ?? 0) : 0; refresh(); haptic() } }
+        Button { text: showTicked ? "hide ticked" : "show ticked"; onTap: { showTicked = !showTicked; haptic() } }
       }
       ErrBar {}
       Spacer { height: 8 + screenInset }
@@ -345,19 +315,14 @@ app "koffan" {
     }
   }
 
-  // The header: back, the name, and the way into adding and into settings.
-  Row {
-    gap: 4
-    align: center
-    padding: [12, 4, 12, 8]
-    if open == 1 || setup {
-      Text { text: "‹"; fontSize: 26; color: accent; width: 30; onTap: { if setup { setup = false } else { open = 0; adding = false; haptic() } } }
-    }
-    Text { text: open == 0 ? (setup ? "koffan setup" : "koffan") : listName; style: title; weight: 1; maxLines: 1 }
-    if offline {
-      Text { text: "offline"; style: small; color: yellow; width: 60; align: center }
-    }
-    if !setup {
+  // The launcher's header has the name and back; under it, offline and the way into adding
+  // and into settings.
+  if !setup {
+    Row {
+      gap: 4
+      align: center
+      padding: [12, 0, 12, 4]
+      Text { text: offline ? "offline" : ""; style: small; color: yellow; weight: 1 }
       if open == 1 {
         Text { text: adding ? "✕" : "+"; fontSize: 24; color: accent; width: 44; align: center; onTap: { adding = !adding; if adding { refresh() }; haptic() } }
       }
