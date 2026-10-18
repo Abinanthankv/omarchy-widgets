@@ -38,10 +38,9 @@ if you can — the Tamil, Kurdish, Swahili and Urdu wording in particular.
 
 ## Requirements
 
-`noto-fonts`, which the widget declares in `requires`. The language chips draw
-Arabic, Latin, Cyrillic, Devanagari, Bengali, Tamil, Thai, Urdu, CJK and Hangul,
-and all of those come from that package. No other package is needed, and the
-widget runs no shell commands.
+None. The tile is drawn with the phone's own fonts, which cover Arabic, Latin,
+Cyrillic, Devanagari, Bengali, Tamil, Thai, Urdu, CJK and Hangul, and the widget
+runs no shell commands.
 
 ## Editing it
 

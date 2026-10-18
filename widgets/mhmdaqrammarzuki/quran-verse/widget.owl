@@ -15,11 +15,11 @@
 widget "quran-verse" {
   size: 6x3
   minSize: 3x2
-  requires { pacman: ["noto-fonts"] }
+  requires { pacman: [] }
   meta {
     owl: 8
     description: "A verse of the day from the Qur'an, in Arabic and in your language"
-    version: "1.0"
+    version: "1.1"
     license: "MIT"
     category: "productivity"
   }
@@ -141,15 +141,15 @@ widget "quran-verse" {
   let n = day % 6236 + 1
 
   source now = clock every 1m
-  source ar = http("https://api.alquran.cloud/v1/ayah/${enc(int(n))}/ar.alquran") json timeout 10s
-  source tr = http("https://api.alquran.cloud/v1/ayah/${enc(int(n))}/${enc(pick.edition)}") json timeout 10s
+  source ar = http("https://api.alquran.cloud/v1/ayah/${enc(int(n))}/ar.alquran") every 6h json timeout 10s
+  source tr = http("https://api.alquran.cloud/v1/ayah/${enc(int(n))}/${enc(pick.edition)}") every 6h json timeout 10s
   // Korean is the only edition here that truncates: 2:286 comes back as three
   // characters. When a translation comes back far shorter than the Arabic it
   // translates, that is one of those, and an English copy stands in. A null URL
   // pauses the source, so it only ever fetches for Korean.
-  source fb = http(pick.edition == "ko.korean" ? "https://api.alquran.cloud/v1/ayah/${enc(int(n))}/en.asad" : null) json timeout 10s
+  source fb = http(pick.edition == "ko.korean" ? "https://api.alquran.cloud/v1/ayah/${enc(int(n))}/en.asad" : null) every 6h json timeout 10s
 
-  state lang = "id" persist
+  state lang = "en" persist
   state arab = true persist
   state picker = false
   state last = null persist
@@ -213,10 +213,10 @@ widget "quran-verse" {
     [pick.t.kAct, "copy, share, haptic, screen"],
     [pick.t.kSrc, "a clock, and api.alquran.cloud for the verse and its translation"],
     [pick.t.kState, "language, whether the Arabic shows, and the last verse, so it works offline"],
-    [pick.t.kFonts, "Noto for Arabic, Cyrillic, Devanagari, Bengali, Tamil, Thai, Urdu, CJK and Hangul; Latin needs none"],
+    [pick.t.kFonts, "the phone's own, which draw every script here"],
     [pick.t.kScripts, "Arabic, Latin, Cyrillic, Devanagari, Bengali, Tamil, Thai, Urdu, CJK, Hangul"],
     [pick.t.kLangs, "23 translations, one edition each, each checked over all 6236 verses"],
-    [pick.t.kPkg, "noto-fonts only, and no shell commands"]
+    [pick.t.kPkg, "none, and no shell commands"]
   ]
 
   on ayah.text { last = ayah }
