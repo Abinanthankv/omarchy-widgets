@@ -3,7 +3,7 @@ widget "ISS Tracker" {
   minSize: 5x2
   meta {
     description: "The next International Space Station passes you can actually see over any zip or postal code worldwide: when, how high it gets and which way to look"
-    version: "1.1"; license: "MIT"; category: "world"; owl: 6
+    version: "1.2"; license: "MIT"; category: "world"; owl: 6
   }
   requires { pacman: ["python"] }
 
@@ -435,7 +435,7 @@ widget "ISS Tracker" {
       if iss.error == null && iss.passes != null && len(passes) == 0 {
         Text { text: "no visible passes in the next 30 days"; style: small; color: muted }
       }
-      for p in passes.take((rows ?? 3) >= 3 ? 4 : 3) key p.rise { PassRow { p: p } }
+      for p in passes.take((rows ?? 3) >= 3 ? 4 : 2) key p.rise { PassRow { p: p } }
     }
     Spacer { weight: 1 }
     if (rows ?? 3) >= 3 {
