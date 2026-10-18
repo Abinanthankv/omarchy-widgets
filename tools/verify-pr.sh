@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks a pull request's widgets and apps with this checkout's tools/owl.jar and
+# Checks a pull request's widgets, faces and apps with this checkout's tools/owl.jar and
 # the levels in owl.txt. Nothing from the pull request is checked out or run: its
 # folders are read out of git as data into a scratch folder, and the checkers read
 # them there.
@@ -32,12 +32,12 @@ levels=$(sed 's/#.*//' owl.txt | awk 'NF >= 2')
 newest=$(echo "$levels" | sort -n | tail -1)
 oldest=$(echo "$levels" | awk '$2 == "supported" { print $1 }' | sort -n | head -1)
 
-# Every file the pull request touches, not only those under widgets/ and apps/.
+# Every file the pull request touches, not only those under widgets/, faces/ and apps/.
 folders=""
 while read -r f; do
   case "$f" in
-    widgets/*/*/* | apps/*/*/*) ;;
-    *) trusted || fail "$f" "a pull request only changes files under widgets/<you>/<name>/ or apps/<you>/<name>/"; continue ;;
+    widgets/*/*/* | faces/*/*/* | apps/*/*/*) ;;
+    *) trusted || fail "$f" "a pull request only changes files under widgets/<you>/<name>/, faces/<you>/<name>/ or apps/<you>/<name>/"; continue ;;
   esac
   top=$(echo "$f" | cut -d/ -f1)
   author=$(echo "$f" | cut -d/ -f2)
@@ -47,7 +47,7 @@ while read -r f; do
   folders="$folders $(echo "$f" | cut -d/ -f1-3)"
 done < <(git diff --name-only --no-renames "$base" "$head")
 
-# The whole folder of each widget or app it touches, as it would be after the merge.
+# The whole folder of each widget, face or app it touches, as it would be after the merge.
 owls=""
 apps=""
 for dir in $(echo "$folders" | tr ' ' '\n' | sort -u); do
@@ -58,6 +58,8 @@ for dir in $(echo "$folders" | tr ' ' '\n' | sort -u); do
       if git cat-file -e "$head:widgets/${dir#apps/}/widget.owl" 2>/dev/null; then
         fail "$dir/app.owl" "widgets/${dir#apps/} is a widget already; give the app another name"
       fi ;;
+    # A face is installed as market-face-<author>-<name>.owl, so it can share a widget's name.
+    faces/*) kind=face ;;
     *) kind=widget ;;
   esac
   while read -r mode type _ path; do
@@ -81,7 +83,7 @@ for dir in $(echo "$folders" | tr ' ' '\n' | sort -u); do
       *.webp)
         [ "$size" -le 102400 ] || fail "$path" "a themed preview is over 100 KB"
         case "$magic" in RIFF*WEBP) ;; *) fail "$path" "$(basename "$path") isn't a WebP image" ;; esac ;;
-      */widget.owl | */app.owl)
+      */widget.owl | */face.owl | */app.owl)
         case "$path" in apps/*) apps="$apps $path" ;; *) owls="$owls $path" ;; esac
         if git cat-file -e "$base:$path" 2>/dev/null; then
           mkdir -p "$out/base/$(dirname "$path")"

@@ -1,13 +1,13 @@
 name: review
 
-# Checks every widget and app a pull request adds or changes and writes a summary for
+# Checks every widget, face and app a pull request adds or changes and writes a summary for
 # the reviewer: what it runs, what it installs, and anything that looks risky.
 #
 # pull_request_target, so a pull request can't bring its own copy of this check:
 # nothing from it is checked out or run, and the token stays read-only.
 on:
   pull_request_target:
-    paths: ["widgets/**", "apps/**"]
+    paths: ["widgets/**", "faces/**", "apps/**"]
 
 permissions:
   contents: read

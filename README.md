@@ -2,10 +2,11 @@
 
 The widget store for [Omalauncher](https://github.com/SimonSchubert/omalauncher), the Android launcher that
 runs Arch Linux and draws home-screen widgets written in OWL, a small declarative widget language.
-It also holds OWL apps: full-screen views that open from the app drawer instead of sitting on a page.
+It also holds OWL faces, whole home pages, and OWL apps: full-screen views that open from the app drawer
+instead of sitting on a page.
 
-Everything in `widgets/` and `apps/` has been reviewed. When a pull request is merged, CI builds
-`index.json` (widgets) and `apps.json` (apps) and publishes the store to GitHub Pages, where the
+Everything in `widgets/`, `faces/` and `apps/` has been reviewed. When a pull request is merged, CI builds
+`index.json` (widgets), `faces.json` (faces) and `apps.json` (apps) and publishes the store to GitHub Pages, where the
 launcher's **store** reads them. Before installing, it shows you every command a widget or app runs
 and every package it installs, and it checks the download against the reviewed file's SHA-256.
 
@@ -69,11 +70,34 @@ Check it with `java -jar tools/owl.jar review . apps/<you>/<name>/app.owl`. Its 
 pictures of the whole view at a phone's size, which `scripts/store-previews.sh` makes too. A widget
 and an app can't share a name. Launchers from before apps (0.7.2 and older) only read `index.json`, so they never see one.
 
+## Submitting a face
+
+A face is a whole home page, as a watch face is a watch's whole screen: an OWL file that starts with
+`face "name" { }`. Its nodes fill the screen, with no tile and no `size`, and it sits left of page 1
+where a stock launcher has its feed. It goes at `faces/<your GitHub username, lowercase>/<name>/face.owl`,
+follows the same steps and rules as a widget and needs `meta { owl: 10 }`. `statusBar: false` hides
+the status bar; see the Faces section of the launcher's widget README:
+
+```owl
+face "quiet" {
+  meta { owl: 10; description: "The time, large, and nothing else"; version: "1.0"; license: "MIT"; category: "time" }
+  source now = clock every 1m
+  Column {
+    align: center
+    Text { text: fmtTime(now, "HH:mm"); fontSize: 96; fontWeight: 200 }
+  }
+}
+```
+
+Check it with `java -jar tools/owl.jar review . faces/<you>/<name>/face.owl`. Its preview is a
+picture of the whole page at a phone's size. Launchers from before faces (0.8.1 and older) only read
+`index.json` and `apps.json`, so they never see one.
+
 ## Rules
 
 - One folder per widget, and only `widget.owl`, `preview.png`, `README.md` and `previews/<theme>.webp` in it
-  (`app.owl` for an app).
-- You can only add or change widgets and apps under your own username.
+  (`face.owl` for a face, `app.owl` for an app).
+- You can only add or change widgets, faces and apps under your own username.
 - `meta` needs a `description` (10-200 characters), a `version` and a `license`. Add a `category`
   (`news`, `dev`, `productivity`, `time`, `world`, `sport`, `finance`, `media`, `games`, `pets`, `fun`, `home` or `system`) so it shows under that tab in the store; without one it goes under "other".
 - Every package the commands need goes in `requires`. CI checks that the packages exist in Arch
@@ -103,6 +127,7 @@ CI summary lists them all, with anything risky flagged.
 widgets/<author>/<name>/widget.owl    the widget
 widgets/<author>/<name>/preview.png   optional screenshot
 widgets/<author>/<name>/previews/     optional screenshots per Omarchy theme (<theme>.webp)
+faces/<author>/<name>/face.owl        a face, with preview.png and previews/ like a widget's
 apps/<author>/<name>/app.owl          an app, with preview.png and previews/ like a widget's
 order.txt                             the order of the store
 docs/LANGUAGE.md                      the widget language
