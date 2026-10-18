@@ -7,8 +7,8 @@ widget "photo" {
 
   meta {
     owl: 8
-    description: "Widget foto dinamis home-screen dengan galeri storage dan input URL web."
-    version: "1.1"
+    description: "Widget foto dinamis home-screen dengan slideshow transisi fade, galeri storage, dan input URL web."
+    version: "1.3"
     license: "MIT"
     category: "media"
     author: "zyanmd"
@@ -24,7 +24,7 @@ widget "photo" {
 mkdir -p ~/.cache/omalauncher-photos
 cat > "$f.tmp" <<'OWL_PY'
 #!/usr/bin/env python3
-import sys, os, re, hashlib, subprocess, json
+import sys, os, re, hashlib, subprocess, json, shutil, urllib.parse
 from pathlib import Path
 
 HOME = Path.home()
@@ -32,6 +32,7 @@ CACHE_DIR = HOME / ".cache/omalauncher-photos"
 THUMB_DIR = CACHE_DIR / "thumbs"
 DL_DIR = CACHE_DIR / "downloads"
 STATUS_FILE = CACHE_DIR / "status.txt"
+REGISTRY_FILE = CACHE_DIR / "registry.json"
 PICTURES_DIR = HOME / "Pictures"
 
 for d in [CACHE_DIR, THUMB_DIR, DL_DIR, PICTURES_DIR]:
@@ -49,6 +50,20 @@ except ImportError:
 def set_status(msg: str):
     try:
         STATUS_FILE.write_text(msg, encoding="utf-8")
+    except Exception:
+        pass
+
+def load_registry():
+    try:
+        if REGISTRY_FILE.exists():
+            return json.loads(REGISTRY_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+def save_registry(data):
+    try:
+        REGISTRY_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
     except Exception:
         pass
 
@@ -74,9 +89,14 @@ def cmd_gallery():
     ]
     images = []
     seen = set()
+    seen_roots = set()
     for root in search_dirs:
         if root.exists():
             try:
+                resolved_root = root.resolve()
+                if resolved_root in seen_roots:
+                    continue
+                seen_roots.add(resolved_root)
                 for p in root.rglob("*"):
                     if p.is_file() and p.suffix.lower() in EXTS and not p.name.startswith("."):
                         resolved = p.resolve()
@@ -85,7 +105,10 @@ def cmd_gallery():
                             images.append(p)
             except Exception:
                 pass
-    images.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+    def get_mtime(p):
+        try: return p.stat().st_mtime
+        except OSError: return 0
+    images.sort(key=get_mtime, reverse=True)
     images = images[:100]
 
     items = []
@@ -139,9 +162,9 @@ def normalize_url(url: str) -> str:
     if url.startswith("www."):
         url = "https://" + url
     elif not url.startswith("http://") and not url.startswith("https://") and not url.startswith("/") and not url.startswith("~"):
-        if "." in url and not url.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif")):
+        if "." in url and not url.startswith("/"):
             url = "https://" + url
-    m = re.search(r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)", url)
+    m = re.search(r"drive\.google\.com/(?:file/d/|open\?id=)([a-zA-Z0-9_-]+)", url)
     if m:
         return f"https://drive.google.com/uc?export=download&id={m.group(1)}"
     if "dropbox.com" in url and "dl=0" in url:
@@ -149,21 +172,137 @@ def normalize_url(url: str) -> str:
     m = re.match(r"^https?://(?:www\.)?imgur\.com/([a-zA-Z0-9]{5,8})$", url)
     if m:
         return f"https://i.imgur.com/{m.group(1)}.jpg"
+    m = re.match(r"^https?://github\.com/([^/]+)/([^/]+)/blob/(.+)$", url)
+    if m:
+        return f"https://raw.githubusercontent.com/{m.group(1)}/{m.group(2)}/{m.group(3)}"
     return url
 
-def cmd_fetch(raw_val="", fallback=""):
+def extract_image_from_html(html_text: str, base_url: str = "") -> str:
+    patterns = [
+        r"<meta\s+[^>]*property=[\x27\"]og:image:secure_url[\x27\"][^>]*content=[\x27\"]([^\x27\"]+)[\x27\"]",
+        r"<meta\s+[^>]*property=[\x27\"]og:image[\x27\"][^>]*content=[\x27\"]([^\x27\"]+)[\x27\"]",
+        r"<meta\s+[^>]*content=[\x27\"]([^\x27\"]+)[\x27\"][^>]*property=[\x27\"]og:image[\x27\"]",
+        r"<meta\s+[^>]*name=[\x27\"]twitter:image(?::src)?[\x27\"][^>]*content=[\x27\"]([^\x27\"]+)[\x27\"]",
+        r"<meta\s+[^>]*content=[\x27\"]([^\x27\"]+)[\x27\"][^>]*name=[\x27\"]twitter:image(?::src)?[\x27\"]",
+        r"<link\s+[^>]*rel=[\x27\"]image_src[\x27\"][^>]*href=[\x27\"]([^\x27\"]+)[\x27\"]",
+        r"<meta\s+[^>]*itemprop=[\x27\"]image[\x27\"][^>]*content=[\x27\"]([^\x27\"]+)[\x27\"]",
+    ]
+    for pat in patterns:
+        m = re.search(pat, html_text, re.IGNORECASE)
+        if m:
+            img_url = m.group(1).replace("&amp;", "&").strip()
+            if base_url:
+                img_url = urllib.parse.urljoin(base_url, img_url)
+            return img_url
+    return ""
+
+def download_url_to_file(url_to_get: str, target_file: Path) -> bool:
+    try:
+        tmp = target_file.with_suffix(".tmp")
+        cmd = ["curl", "-f", "-sL", "-A", USER_AGENT, "--compressed", "--max-time", "20", "--retry", "2", "-o", str(tmp), url_to_get]
+        res = subprocess.run(cmd, capture_output=True)
+        if res.returncode == 0 and tmp.exists() and tmp.stat().st_size > 0:
+            os.replace(tmp, target_file)
+            return True
+        if tmp.exists():
+            try: tmp.unlink()
+            except Exception: pass
+    except Exception:
+        pass
+    return False
+
+def fetch_web_photo(norm_url: str, dest: Path) -> str:
+    raw_tmp = dest.with_suffix(".raw")
+    if not download_url_to_file(norm_url, raw_tmp):
+        return ""
+    
+    is_img = False
+    if HAS_PIL:
+        try:
+            with Image.open(raw_tmp) as im:
+                if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+                    rgb = Image.new("RGB", im.size, (255, 255, 255))
+                    rgb.paste(im.convert("RGBA"), mask=im.convert("RGBA").split()[3])
+                    rgb.save(dest, "JPEG", quality=92)
+                else:
+                    im.convert("RGB").save(dest, "JPEG", quality=92)
+            is_img = True
+        except Exception:
+            is_img = False
+    else:
+        try:
+            header = raw_tmp.read_bytes()[:16]
+            if header.startswith(b"\xff\xd8") or header.startswith(b"\x89PNG") or header.startswith(b"RIFF") or header.startswith(b"GIF8"):
+                shutil.copyfile(raw_tmp, dest)
+                is_img = True
+        except Exception:
+            pass
+
+    if is_img:
+        try: raw_tmp.unlink()
+        except Exception: pass
+        return str(dest.resolve())
+
+    try:
+        content = raw_tmp.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        content = ""
+    
+    try: raw_tmp.unlink()
+    except Exception: pass
+
+    if content:
+        img_url = extract_image_from_html(content, base_url=norm_url)
+        if img_url and img_url != norm_url:
+            if download_url_to_file(img_url, raw_tmp):
+                if HAS_PIL:
+                    try:
+                        with Image.open(raw_tmp) as im:
+                            if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+                                rgb = Image.new("RGB", im.size, (255, 255, 255))
+                                rgb.paste(im.convert("RGBA"), mask=im.convert("RGBA").split()[3])
+                                rgb.save(dest, "JPEG", quality=92)
+                            else:
+                                im.convert("RGB").save(dest, "JPEG", quality=92)
+                        try: raw_tmp.unlink()
+                        except Exception: pass
+                        return str(dest.resolve())
+                    except Exception:
+                        pass
+                else:
+                    shutil.copyfile(raw_tmp, dest)
+                    try: raw_tmp.unlink()
+                    except Exception: pass
+                    return str(dest.resolve())
+
+    if raw_tmp.exists():
+        try: raw_tmp.unlink()
+        except Exception: pass
+    return ""
+
+def resolve_or_fetch(raw_val: str) -> str:
     raw_val = (raw_val or "").strip()
-    fallback = (fallback or "").strip()
-    if not raw_val:
-        set_status("OK")
-        print(fallback)
-        return
+    if not raw_val: return ""
     expanded = Path(os.path.expanduser(raw_val))
     if expanded.is_file() and expanded.stat().st_size > 0:
-        set_status("OK")
-        print(str(expanded.resolve()))
-        return
-    if raw_val.startswith("/storage/") or raw_val.startswith("/sdcard/") or raw_val.startswith("content://") or (not raw_val.startswith("http://") and not raw_val.startswith("https://")):
+        return str(expanded.resolve())
+    norm_url = normalize_url(raw_val)
+    if norm_url.startswith("http://") or norm_url.startswith("https://"):
+        url_hash = hashlib.md5(norm_url.encode()).hexdigest()[:16]
+        dest = DL_DIR / f"photo_{url_hash}.jpg"
+        if dest.exists() and dest.stat().st_size > 0:
+            if HAS_PIL:
+                try:
+                    with Image.open(dest) as im:
+                        im.verify()
+                    return str(dest.resolve())
+                except Exception:
+                    try: dest.unlink()
+                    except Exception: pass
+            else:
+                return str(dest.resolve())
+        return fetch_web_photo(norm_url, dest)
+    if raw_val.startswith("/storage/") or raw_val.startswith("/sdcard/") or raw_val.startswith("content://"):
         fname = Path(raw_val).name
         search_dirs = [
             Path("/storage/emulated/0/Pictures"),
@@ -175,71 +314,129 @@ def cmd_fetch(raw_val="", fallback=""):
             if sdir.exists():
                 direct = sdir / fname
                 if direct.is_file() and direct.stat().st_size > 0:
-                    set_status("OK")
-                    print(str(direct.resolve()))
-                    return
+                    return str(direct.resolve())
                 for f in sdir.glob(f"**/{fname}"):
                     if f.is_file() and f.stat().st_size > 0:
-                        set_status("OK")
-                        print(str(f.resolve()))
-                        return
-    norm_url = normalize_url(raw_val)
-    if norm_url.startswith("http://") or norm_url.startswith("https://"):
-        url_hash = hashlib.md5(norm_url.encode()).hexdigest()[:16]
-        dest = DL_DIR / f"photo_{url_hash}.jpg"
-        if dest.exists() and dest.stat().st_size > 0:
-            set_status("OK (Cache)")
-            print(str(dest.resolve()))
-            return
-        cmd = ["curl", "-sL", "-A", USER_AGENT, "--compressed", "--max-time", "20", "--retry", "2", "-o", str(dest), norm_url]
-        res = subprocess.run(cmd, capture_output=True)
-        if res.returncode == 0 and dest.exists() and dest.stat().st_size > 0:
-            set_status("OK")
-            print(str(dest.resolve()))
-            return
+                        return str(f.resolve())
+    return ""
+
+def cmd_fetch(raw_val="", fallback="", widget_file="market-zyanmd-photo.owl"):
+    res = resolve_or_fetch(raw_val)
+    if res:
+        set_status("OK")
+        cmd_register_photo(widget_file, res)
+        print(res.strip())
+    else:
+        if raw_val:
+            set_status("Gagal mengunduh URL / file tidak ditemukan")
         else:
-            set_status("Gagal mengunduh URL")
-            print(fallback)
-            return
-    set_status("File tidak ditemukan")
-    print(fallback)
+            set_status("OK")
+        print((fallback or "").strip())
+
+def cmd_register_photo(filename="", photo_path=""):
+    filename = Path(filename or "").name
+    if not filename: return
+    registry = load_registry()
+    if photo_path:
+        registry[filename] = photo_path.strip()
+    else:
+        registry.pop(filename, None)
+    save_registry(registry)
 
 if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "gallery"
     if action == "gallery": cmd_gallery()
-    elif action == "fetch": cmd_fetch(sys.argv[2] if len(sys.argv) > 2 else "", sys.argv[3] if len(sys.argv) > 3 else "")
+    elif action == "fetch": cmd_fetch(sys.argv[2] if len(sys.argv) > 2 else "", sys.argv[3] if len(sys.argv) > 3 else "", sys.argv[4] if len(sys.argv) > 4 else "market-zyanmd-photo.owl")
+    elif action == "register":
+        cmd_register_photo(sys.argv[2] if len(sys.argv) > 2 else "", sys.argv[3] if len(sys.argv) > 3 else "")
+        print("ok")
 OWL_PY
 mv -f "$f.tmp" "$f"
 python3 "$f" gallery
-""") every 10m json
+""") every 10m json timeout 30s
+
+  source now = clock every 1s
+
   source photoStatus = file("~/.cache/omalauncher-photos/status.txt")
+  source themeName = file("~/.local/state/omarchy/current/theme.name")
+  source themeColors = file("~/.local/state/omarchy/current/theme/colors.toml")
+  source sys = android.system every 5s
+
+  let widgetFile = "market-zyanmd-photo.owl"
+
+  let activeTheme = lower(themeName != "" ? themeName : (sys.theme ?? ""))
+  let isLight = contains(lower(themeColors), 'mode = "light"') || contains(activeTheme, "white") || contains(activeTheme, "light") || contains(activeTheme, "latte") || contains(activeTheme, "lupine") || contains(activeTheme, "rose-pine") || contains(activeTheme, "flexoki-light")
+
+  let cardBg = isLight ? alpha("#ffffff", 0.95) : alpha(surface, 0.75)
+  let cardBorder = isLight ? alpha(border, 0.55) : alpha(border, 0.35)
+  let subCardBg = isLight ? alpha(background, 0.7) : alpha(background, 0.4)
+  let subCardBorder = isLight ? alpha(border, 0.4) : alpha(border, 0.22)
+  let activeItemBg = isLight ? alpha(accent, 0.14) : alpha(accent, 0.18)
 
   state activePhoto = "" persist
+  state album = [] persist
+  state slideSpeed = 8 persist
   state requestPhoto = "" persist
+  state requestAlbumPhoto = "" persist
+  state fetchedAlbumPhoto = ""
   state inputUrl = "" persist
   state photoFit = "cover" persist
   state galleryPage = 0
 
-  let currentSrc = (activePhoto != "" && activePhoto != null) ? activePhoto : defaultPhoto
-  let isFetching = (requestPhoto ?? "") != ""
+  let cleanActivePhoto = (activePhoto != "" && activePhoto != null) ? trim(last(lines(activePhoto))) : ""
+  let totalAlbum = len(album)
+  let isSlideshow = totalAlbum > 1
+  let slideIndex = isSlideshow ? (floor(now / slideSpeed) % totalAlbum) : 0
+  let curSlidePath = isSlideshow ? trim(last(lines(album[slideIndex]))) : (cleanActivePhoto != "" ? cleanActivePhoto : defaultPhoto)
+  let currentSrc = isSlideshow ? curSlidePath : (cleanActivePhoto != "" ? cleanActivePhoto : defaultPhoto)
+  let isFetching = (requestPhoto ?? "") != "" || (requestAlbumPhoto ?? "") != ""
 
-  when isFetching {
-    activePhoto = run("python3 ~/.cache/omalauncher-photos/helper.py fetch ${sh(requestPhoto)} ${sh(activePhoto)}")
+  when startsWith(activePhoto ?? "", "ok") {
+    activePhoto = trim(last(lines(activePhoto)))
+  }
+
+  when any(album ?? [], x => startsWith(x, "ok")) {
+    album = map(album, x => trim(last(lines(x))))
+  }
+
+  when (requestPhoto ?? "") != "" {
+    activePhoto = run("python3 ~/.cache/omalauncher-photos/helper.py fetch ${sh(requestPhoto)} ${sh(cleanActivePhoto)} ${sh(widgetFile)}")
     requestPhoto = ""
+  }
+
+  when (requestAlbumPhoto ?? "") != "" {
+    fetchedAlbumPhoto = run("python3 ~/.cache/omalauncher-photos/helper.py fetch ${sh(requestAlbumPhoto)} '' ${sh(widgetFile)}")
+    album = fetchedAlbumPhoto != "" ? take(unique(album + [trim(last(lines(fetchedAlbumPhoto)))]), 10) : album
+    requestAlbumPhoto = ""
   }
 
   onTap: screen()
 
-  // ==== TAMPILAN TILE FOTO DINAMIS ====
+  // ==== TAMPILAN TILE FOTO DINAMIS (DENGAN TRANSISI FADE) ====
   Box {
     fill: true
-    radius: 16 * corners
+    radius: 16 * (corners ?? 1)
     clip: true
-    background: alpha(surface, 0.7)
+    background: isLight ? alpha("#ffffff", 0.9) : alpha(surface, 0.7)
     border: 1
-    borderColor: alpha(border, 0.4)
+    borderColor: isLight ? alpha(border, 0.5) : alpha(border, 0.4)
 
-    if activePhoto != "" && activePhoto != null {
+    if isSlideshow {
+      for p in album key p {
+        let cleanP = trim(last(lines(p)))
+        let isCur = cleanP == curSlidePath
+        Box {
+          fill: true
+          opacity: isCur ? 1 : 0
+          animate opacity: tween(800ms, "ease")
+          if photoFit == "contain" {
+            Image { src: cleanP; fill: true; fit: contain }
+          } else {
+            Image { src: cleanP; fill: true; fit: cover }
+          }
+        }
+      }
+    } else if cleanActivePhoto != "" {
       if photoFit == "contain" {
         Image {
           src: currentSrc
@@ -253,21 +450,6 @@ python3 "$f" gallery
           fit: cover
         }
       }
-
-      if isFetching {
-        Box {
-          align: topEnd
-          padding: 8
-          Box {
-            padding: [6, 4]
-            radius: 6 * corners
-            background: alpha(background, 0.8)
-            border: 1
-            borderColor: alpha(accent, 0.5)
-            Text { text: "⏳"; fontSize: 12 }
-          }
-        }
-      }
     } else {
       Column {
         fill: true
@@ -275,7 +457,27 @@ python3 "$f" gallery
         justify: center
         gap: 6
         Text { text: "🖼"; fontSize: 38; align: center }
-        Text { text: "Ketuk untuk pasang foto"; style: small; color: muted; align: center }
+        Text {
+          text: "Ketuk untuk pasang foto"
+          style: small
+          color: muted
+          align: center
+        }
+      }
+    }
+
+    if isFetching {
+      Box {
+        align: topEnd
+        padding: 8
+        Box {
+          padding: [6, 4]
+          radius: 6 * (corners ?? 1)
+          background: alpha(background, 0.85)
+          border: 1
+          borderColor: accent
+          Text { text: "⏳"; fontSize: 12 }
+        }
       }
     }
   }
@@ -289,26 +491,26 @@ python3 "$f" gallery
       padding: [16, 14]
       gap: 12
 
-      // Kartu Foto Aktif Saat Ini
+      // Kartu 1: Foto Aktif / Slideshow Status
       Row {
         fill: width
         align: center
         padding: 12
-        background: alpha(surface, 0.7)
+        background: cardBg
         border: 1
-        borderColor: alpha(border, 0.4)
-        radius: 12 * corners
+        borderColor: cardBorder
+        radius: 12 * (corners ?? 1)
         gap: 12
 
         Box {
           size: 72
-          radius: 10 * corners
+          radius: 10 * (corners ?? 1)
           clip: true
-          background: alpha(surface, 0.9)
+          background: isLight ? alpha("#ffffff", 0.9) : alpha(surface, 0.9)
           border: 1.5
           borderColor: accent
 
-          if activePhoto != "" && activePhoto != null {
+          if (isSlideshow || cleanActivePhoto != "") {
             if photoFit == "contain" {
               Image { src: currentSrc; fill: true; fit: contain }
             } else {
@@ -326,34 +528,49 @@ python3 "$f" gallery
 
         Column {
           weight: 1
-          gap: 4
+          gap: 6
           Row {
             fill: width
             gap: 6
             align: center
-            Text { text: "Foto Aktif"; style: label; bold: true; color: accent; weight: 1 }
+            Text {
+              text: isSlideshow ? "Slideshow Fade Aktif (${totalAlbum} Foto)" : "Foto Aktif"
+              style: label
+              bold: true
+              color: isLight ? accent : foreground
+              weight: 1
+            }
             if isFetching {
               Text { text: "⏳ Memproses..."; style: small; color: orange; width: 100; align: end }
             }
           }
           Text {
-            text: activePhoto != "" ? activePhoto : "Foto Default (zyanmd)"
+            text: isSlideshow ? "Rotasi ${totalAlbum} foto tiap ${slideSpeed}s (Slide ${slideIndex + 1}/${totalAlbum})" : (cleanActivePhoto != "" ? cleanActivePhoto : "Foto Default (zyanmd)")
             style: small
-            color: foreground
+            color: muted
             maxLines: 1
           }
           Row {
             gap: 8
             Button {
-              text: photoFit == "cover" ? "Mode: Cover" : "Mode: Contain"
+              text: photoFit == "cover" ? "Mode Cover" : "Mode Contain"
               onTap: photoFit = (photoFit == "cover" ? "contain" : "cover")
             }
-            if activePhoto != "" {
+            if isSlideshow {
               Button {
-                text: "↺ Default"
+                text: "✕ Matikan"
+                onTap: {
+                  album = []
+                  haptic()
+                }
+              }
+            } else if cleanActivePhoto != "" {
+              Button {
+                text: "↺ Reset"
                 onTap: {
                   activePhoto = ""
                   requestPhoto = ""
+                  run("python3 ~/.cache/omalauncher-photos/helper.py register ${sh(widgetFile)} ''")
                   haptic()
                 }
               }
@@ -364,36 +581,179 @@ python3 "$f" gallery
 
       // Notifikasi / Status Error jika ada
       let statusClean = trim(photoStatus ?? "")
+      let isSuccess = startsWith(statusClean, "✓")
       if statusClean != "" && statusClean != "OK" {
         Row {
           fill: width
           padding: [10, 8]
-          background: alpha(orange, 0.15)
+          background: isSuccess ? (isLight ? alpha(green, 0.15) : alpha(accent, 0.18)) : alpha(orange, 0.15)
           border: 1
-          borderColor: alpha(orange, 0.45)
-          radius: 10 * corners
+          borderColor: isSuccess ? (isLight ? alpha(green, 0.5) : alpha(accent, 0.5)) : alpha(orange, 0.5)
+          radius: 10 * (corners ?? 1)
           gap: 8
           align: center
 
-          Text { text: "⚠️"; fontSize: 18; width: 24 }
+          Text { text: isSuccess ? "✨" : "⚠️"; fontSize: 18; width: 24 }
           Text {
             text: statusClean
             style: small
-            color: orange
+            color: isSuccess ? (isLight ? green : accent) : orange
             weight: 1
           }
         }
       }
 
-      // ==== GALERI FOTO LOKAL (STORAGE ~/Pictures) ====
+      // Kartu 2: Pengaturan Durasi Slideshow (Muncul jika ada foto slideshow)
+      if totalAlbum > 1 {
+        Column {
+          fill: width
+          gap: 10
+          padding: 12
+          background: cardBg
+          border: 1
+          borderColor: cardBorder
+          radius: 12 * (corners ?? 1)
+
+          Row {
+            fill: width
+            align: center
+            Text {
+              text: "⏱ Kecepatan Transisi Slideshow"
+              style: label
+              bold: true
+              color: isLight ? "#10233b" : foreground
+              weight: 1
+            }
+            Text {
+              text: "${slideSpeed} detik / foto"
+              style: small
+              font: mono
+              bold: true
+              color: accent
+              width: 100
+              align: end
+            }
+          }
+
+          Text {
+            text: "Pilih interval pergantian foto dengan efek transisi fade (800ms):"
+            style: small
+            color: muted
+          }
+
+          Row {
+            fill: width
+            gap: 6
+            for sp in [[5, "5s"], [8, "8s"], [15, "15s"], [30, "30s"], [60, "1m"]] key sp[0] {
+              let isSel = slideSpeed == sp[0]
+              Box {
+                weight: 1
+                padding: [8, 6]
+                radius: 6 * (corners ?? 1)
+                background: isSel ? accent : subCardBg
+                border: 1
+                borderColor: isSel ? accent : subCardBorder
+                align: center
+                onTap: {
+                  slideSpeed = sp[0]
+                  haptic()
+                }
+                Text {
+                  text: sp[1]
+                  style: small
+                  bold: true
+                  color: isSel ? (isLight ? "#ffffff" : background) : foreground
+                  align: center
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Kartu 3: Daftar Foto Slideshow Album (Jika ada foto di album)
+      if totalAlbum > 0 {
+        Column {
+          fill: width
+          gap: 10
+          padding: 12
+          background: cardBg
+          border: 1
+          borderColor: cardBorder
+          radius: 12 * (corners ?? 1)
+
+          Row {
+            fill: width
+            align: center
+            Text {
+              text: "Album Slideshow Widget Ini"
+              style: label
+              bold: true
+              color: isLight ? "#10233b" : foreground
+              weight: 1
+            }
+            Text {
+              text: "${totalAlbum} / 10 foto"
+              style: small
+              bold: true
+              color: totalAlbum >= 10 ? orange : accent
+              width: 75
+              align: end
+            }
+          }
+
+          for item in album key item {
+            let isCurItem = item == curSlidePath
+            Row {
+              fill: width
+              align: center
+              padding: [8, 6]
+              background: isCurItem ? activeItemBg : subCardBg
+              border: 1
+              borderColor: isCurItem ? accent : subCardBorder
+              radius: 6 * (corners ?? 1)
+              gap: 8
+
+              let cleanItem = trim(last(lines(item)))
+              Box {
+                size: 36
+                radius: 4 * (corners ?? 1)
+                clip: true
+                background: alpha(surface, 0.9)
+                Image { src: cleanItem; fill: true; fit: cover }
+              }
+
+              Text {
+                text: last(split(item, "/"))
+                style: small
+                bold: isCurItem
+                color: isCurItem ? accent : foreground
+                weight: 1
+                maxLines: 1
+              }
+
+              Button {
+                text: "✕"
+                width: 38
+                onTap: {
+                  album = filter(album, x => x != item)
+                  haptic()
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Kartu 4: Galeri Foto Lokal (Storage ~/Pictures)
       Column {
         fill: width
         gap: 10
         padding: 12
-        background: alpha(surface, 0.7)
+        background: cardBg
         border: 1
-        borderColor: alpha(border, 0.4)
-        radius: 12 * corners
+        borderColor: cardBorder
+        radius: 12 * (corners ?? 1)
 
         Row {
           fill: width
@@ -402,6 +762,7 @@ python3 "$f" gallery
             text: "Galeri Foto"
             style: label
             bold: true
+            color: isLight ? "#10233b" : foreground
             weight: 1
           }
           Text {
@@ -447,61 +808,95 @@ python3 "$f" gallery
         let pagedPhotos = take(drop(allPhotos, currentPage * pageSize), pageSize)
 
         for p in pagedPhotos key p.path {
-          Row {
+          let inAlbum = any(album, x => x == p.path)
+          let isSingleActive = cleanActivePhoto == p.path && !isSlideshow
+
+          Column {
             fill: width
-            align: center
             padding: 8
-            background: activePhoto == p.path ? alpha(accent, 0.18) : alpha(background, 0.45)
+            background: (inAlbum || isSingleActive) ? activeItemBg : subCardBg
             border: 1
-            borderColor: activePhoto == p.path ? accent : alpha(border, 0.25)
-            radius: 8 * corners
-            gap: 10
+            borderColor: (inAlbum || isSingleActive) ? accent : subCardBorder
+            radius: 8 * (corners ?? 1)
+            gap: 8
 
-            Box {
-              size: 46
-              radius: 6 * corners
-              clip: true
-              background: alpha(surface, 0.9)
-              Image {
-                src: p.thumb != "" ? p.thumb : p.path
-                fill: true
-                fit: cover
+            Row {
+              fill: width
+              align: center
+              gap: 10
+
+              Box {
+                size: 46
+                radius: 6 * (corners ?? 1)
+                clip: true
+                background: alpha(surface, 0.9)
+                Image {
+                  src: p.thumb != "" ? p.thumb : p.path
+                  fill: true
+                  fit: cover
+                }
+              }
+
+              Column {
+                weight: 1
+                gap: 2
+                Text {
+                  text: p.name
+                  style: body
+                  bold: inAlbum || isSingleActive
+                  color: (inAlbum || isSingleActive) ? accent : foreground
+                  maxLines: 1
+                }
+                Text {
+                  text: "${p.file} • ${p.size}"
+                  style: small
+                  color: muted
+                  maxLines: 1
+                }
+              }
+
+              if inAlbum {
+                Text {
+                  text: "📷 Slideshow"
+                  style: small
+                  bold: true
+                  color: accent
+                  width: 80
+                  align: end
+                }
+              } else if isSingleActive {
+                Text {
+                  text: "✓ Aktif"
+                  style: small
+                  bold: true
+                  color: accent
+                  width: 60
+                  align: end
+                }
               }
             }
 
-            Column {
-              weight: 1
-              gap: 2
-              Text {
-                text: p.name
-                style: body
-                bold: activePhoto == p.path
-                color: activePhoto == p.path ? accent : foreground
-                maxLines: 1
-              }
-              Text {
-                text: "${p.file} • ${p.size}"
-                style: small
-                color: muted
-                maxLines: 1
-              }
-            }
+            Row {
+              fill: width
+              gap: 6
 
-            if activePhoto == p.path {
-              Text {
-                text: "✓ Aktif"
-                style: small
-                bold: true
-                    width: 60
-                align: end
-              }
-            } else {
               Button {
+                weight: 1
                 text: "Pasang"
-                width: 75
                 onTap: {
                   activePhoto = p.path
                   requestPhoto = ""
+                  album = []
+                  run("python3 ~/.cache/omalauncher-photos/helper.py register ${sh(widgetFile)} ${sh(p.path)}")
+                  haptic()
+                }
+              }
+
+              Button {
+                weight: 1
+                text: inAlbum ? "✓ Album" : "+ Album"
+                onTap: {
+                  album = (!inAlbum && totalAlbum < 10) ? take(unique(album + [p.path]), 10) : album
                   haptic()
                 }
               }
@@ -546,15 +941,15 @@ python3 "$f" gallery
         }
       }
 
-      // ==== INPUT URL / PATH FOTO ====
+      // Kartu 5: Input URL / Path Foto
       Column {
         fill: width
         gap: 10
         padding: 12
-        background: alpha(surface, 0.7)
+        background: cardBg
         border: 1
-        borderColor: alpha(border, 0.4)
-        radius: 12 * corners
+        borderColor: cardBorder
+        radius: 12 * (corners ?? 1)
 
         Row {
           fill: width
@@ -563,6 +958,7 @@ python3 "$f" gallery
             text: "Ganti Foto via URL / Path"
             style: label
             bold: true
+            color: isLight ? "#10233b" : foreground
             weight: 1
           }
         }
@@ -580,26 +976,39 @@ python3 "$f" gallery
           onChange: inputUrl = value
           onSubmit: {
             requestPhoto = value != "" ? value : requestPhoto
+            inputUrl = ""
             haptic()
           }
         }
 
         Row {
           fill: width
-          gap: 8
+          gap: 6
 
           Button {
             weight: 1
-            text: "✓ Pasang Foto"
-            color: alpha(accent, 0.3)
+            text: "✓ Pasang"
             onTap: {
+              album = inputUrl != "" ? [] : album
               requestPhoto = inputUrl != "" ? inputUrl : requestPhoto
+              inputUrl = ""
               haptic()
             }
           }
 
           Button {
-            text: "✕ Reset"
+            weight: 1
+            text: "+ Album"
+            onTap: {
+              requestAlbumPhoto = (inputUrl != "" && totalAlbum < 10) ? inputUrl : requestAlbumPhoto
+              inputUrl = (inputUrl != "" && totalAlbum < 10) ? "" : inputUrl
+              haptic()
+            }
+          }
+
+          Button {
+            text: "✕"
+            width: 38
             onTap: {
               inputUrl = ""
               haptic()
@@ -608,15 +1017,53 @@ python3 "$f" gallery
         }
       }
 
-      // ==== KARTU CREDIT GITHUB (DI PALING BAWAH) ====
+      // Kartu 6: Tambah Tile Widget (Store Resmi)
+      Column {
+        fill: width
+        gap: 8
+        padding: 12
+        background: cardBg
+        border: 1
+        borderColor: cardBorder
+        radius: 12 * (corners ?? 1)
+
+        Row {
+          fill: width
+          align: center
+          Text {
+            text: "Tambah Widget Foto Baru"
+            style: label
+            bold: true
+            color: isLight ? "#10233b" : foreground
+            weight: 1
+          }
+        }
+
+        Text {
+          text: "Ingin memasang widget foto tambahan di home screen? Tambahkan tile foto lagi melalui Store bawaan launcher:"
+          style: small
+          color: muted
+        }
+
+        Button {
+          fill: width
+          text: "🏪 Buka Widget Store"
+          onTap: {
+            launcher("store")
+            haptic()
+          }
+        }
+      }
+
+      // Kartu 7: Credit GitHub (zyanmd)
       Row {
         fill: width
         align: center
         padding: [14, 12]
-        background: alpha(surface, 0.7)
+        background: cardBg
         border: 1
-        borderColor: alpha(border, 0.4)
-        radius: 12 * corners
+        borderColor: cardBorder
+        radius: 12 * (corners ?? 1)
         gap: 12
         onTap: {
           url("https://github.com/zyanmd")
@@ -625,7 +1072,7 @@ python3 "$f" gallery
 
         Box {
           size: 38
-          radius: 10 * corners
+          radius: 10 * (corners ?? 1)
           clip: true
           background: alpha(accent, 0.15)
           border: 1
@@ -650,13 +1097,13 @@ python3 "$f" gallery
           Text {
             text: "github.com/zyanmd"
             style: small
+            color: muted
           }
         }
 
         Button {
           text: "Kunjungi ↗"
           width: 95
-          color: accent
           onTap: {
             url("https://github.com/zyanmd")
             haptic()
