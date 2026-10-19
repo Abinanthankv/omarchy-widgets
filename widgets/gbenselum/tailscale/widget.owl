@@ -1,6 +1,4 @@
 widget "tailscale" {
-  page: 1
-  order: 10
   size: 6x5
   minSize: 3x4
 

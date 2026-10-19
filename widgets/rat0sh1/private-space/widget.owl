@@ -1,6 +1,4 @@
 widget "private space" {
-  page: 1
-  order: 3
   size: 3x2
   minSize: 2x2
   requires { pacman: ["android-tools", "iproute2", "python", "coreutils"] }

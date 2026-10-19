@@ -1,6 +1,4 @@
 widget "Dictation" {
- page: 1
- order: 7
  size: 3x4
  minSize: 3x3
  meta { owl: 6; description: "Dictate by voice, let Claude or Codex tidy the text, review it, then send it to a Codex chat or to Claude or any CLI in tmux. One page, no copy and paste."; version: "3.5"; license: "MIT"; category: "productivity" }

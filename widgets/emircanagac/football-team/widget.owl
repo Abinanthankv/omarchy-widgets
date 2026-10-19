@@ -6,8 +6,6 @@ widget "football-team" {
     license: "MIT"
     category: "sport"
   }
-  page: 1
-  order: 2
   size: 6x2
   minSize: 5x2
   padding: 0

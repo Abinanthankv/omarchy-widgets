@@ -1,6 +1,4 @@
 widget "chess" {
-  page: 1
-  order: 4
   size: 6x7
   minSize: 4x4
   padding: 0

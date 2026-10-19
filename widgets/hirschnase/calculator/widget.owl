@@ -7,8 +7,6 @@ widget "calculator" {
     category: "productivity"
   }
   requires { pacman: [] }
-  page: 2
-  order: 3
   size: 4x6
   minSize: 4x5
   padding: 12

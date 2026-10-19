@@ -1,6 +1,4 @@
 widget "cleaner" {
-  page: 1
-  order: 9
   size: 3x3
   minSize: 3x2
 

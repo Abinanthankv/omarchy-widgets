@@ -1,6 +1,4 @@
 widget "Terminal Voice" {
-  page: 1
-  order: 6
   size: 3x4
   minSize: 3x4
   meta { owl: 6; description: "Hear Codex or Claude replies, or a tmux terminal running any CLI, read aloud, even a task that finishes with the screen off. Pairs with Dictation to answer by voice."; version: "3.5"; license: "MIT"; category: "productivity" }

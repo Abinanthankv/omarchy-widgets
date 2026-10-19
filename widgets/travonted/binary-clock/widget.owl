@@ -1,6 +1,4 @@
 widget "binary clock" {
-  page: 1
-  order: 4
   size: 3x2
   minSize: 2x2
   meta { description: "The time as six columns of LEDs: hours, minutes and seconds in binary. Tap for a bigger clock with the date and a switch to blank leading zeros"; version: "1.0"; license: "MIT"; category: "time"; owl: 5 }

@@ -1,6 +1,4 @@
 widget "xfeed" {
-  page: 1
-  order: 6
   size: 6x4
   minSize: 3x3
   meta { description: "Latest posts from only the X accounts you choose, no login or API key, with a notification when they post. A feed without the timeline"; version: "1.0"; license: "MIT"; category: "news"; owl: 9 }

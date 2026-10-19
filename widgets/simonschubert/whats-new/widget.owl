@@ -1,6 +1,4 @@
 widget "what's new" {
-  page: 2
-  order: 9
   size: 3x2
   minSize: 2x2
   meta { description: "What's new in the launcher, from its changelog on GitHub. Tap it for every release"; version: "1.0"; license: "MIT"; category: "news"; owl: 5 }

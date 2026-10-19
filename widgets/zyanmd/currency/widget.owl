@@ -7,8 +7,6 @@ widget "currency" {
     category: "finance"
   }
 
-  page: 1
-  order: 4
   size: 6x3
   minSize: 6x2
   padding: 10

@@ -1,8 +1,6 @@
 widget "cricket" {
   meta { owl: 9; description: "Live cricket scores from Cricbuzz: every match at a glance, live ones first. Tap a match for the scorecard - batsmen, bowlers, rates, recent balls - or the tile for the full board"; version: "1.5"; license: "MIT"; category: "sport" }
 
-  page: 2
-  order: 2
   size: 3x4
   minSize: 3x3
   padding: 8

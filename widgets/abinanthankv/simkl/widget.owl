@@ -1,6 +1,4 @@
 widget "simkl" {
-  page: 1
-  order: 15
   size: 6x4
   minSize: 3x4
   meta { owl: 8; description: "Your next week of TV, anime and movies from Simkl: tile, posters and full screen. Tap login, approve the code on simkl.com, done"; version: "1.4"; license: "MIT"; category: "time" }

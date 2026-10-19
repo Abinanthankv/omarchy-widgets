@@ -20,8 +20,6 @@ widget "opencode-burn" {
     category: "dev"
   }
 
-  page: 1
-  order: 3
   size: 2x2
 
   minSize: 1x1

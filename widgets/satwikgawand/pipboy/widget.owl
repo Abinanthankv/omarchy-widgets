@@ -1,6 +1,4 @@
 widget "pipboy" {
-  page: 1
-  order: 3
   size: 3x4
   minSize: 3x3
   meta {

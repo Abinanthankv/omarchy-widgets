@@ -6,8 +6,6 @@ widget "flashcards" {
     license: "MIT"
     category: "productivity"
   }
-  page: 3
-  order: 1
   size: 3x4
   minSize: 3x3
   padding: 12

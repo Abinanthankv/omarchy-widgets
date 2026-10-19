@@ -1,7 +1,5 @@
 widget "layout saver" {
   meta { owl: 8; description: "Saves your widgets, apps and style as a layout, backs them up to GitHub, and makes one bash script that sets up a new system. Installs its helper as ~/.local/bin/owl-layout."; version: "1.4"; license: "MIT"; category: "system" }
-  page: 1
-  order: 3
   size: 6x3
   minSize: 4x3
 

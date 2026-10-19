@@ -1,6 +1,4 @@
 widget "DEV LOGS" {
-  page: 2
-  order: 2
   size: 3x4
   minSize: 2x2
   meta { owl: 6; description: "Dev logs, Markdown project files and Linux diagnostics. Your coding agent writes log entries, explains errors and fixes them in a terminal."; version: "2.0.1"; license: "MIT"; category: "productivity" }

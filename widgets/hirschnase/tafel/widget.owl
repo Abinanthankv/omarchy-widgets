@@ -7,8 +7,6 @@ widget "tafel" {
     category: "fun"
   }
   requires { pacman: [] }
-  page: 2
-  order: 2
   size: 6x5
   minSize: 6x4
   padding: 10

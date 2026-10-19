@@ -1,7 +1,5 @@
 widget "folder" {
   meta { owl: 9; description: "Folder of Android apps: custom title, reorder, 3-5 columns, border and corners. Optional duplicate/sync buttons write copies of this widget file into the widgets folder."; version: "1.1"; license: "MIT"; category: "productivity" }
-  page: 1
-  order: 3
   size: 6x3
   minSize: 3x2
 

@@ -1,7 +1,5 @@
 widget "android-cava-visualizer" {
   meta { owl: 6; description: "Visualize Android internal audio with CAVA via the WiFi Audio Streaming app's HTTP stream"; version: "1.0"; license: "MIT"; category: "fun" }
-  page: 1
-  order: 3
   size: 6x2
   minSize: 3x1
 

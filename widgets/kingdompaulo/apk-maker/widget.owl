@@ -1,6 +1,4 @@
 widget "Agentic APK Maker" {
-  page: 1
-  order: 4
   size: 6x5
   minSize: 3x3
 

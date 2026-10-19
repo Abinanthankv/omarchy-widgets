@@ -1,6 +1,4 @@
 widget "carburant" {
-  page: 1
-  order: 5
   size: 3x5
   minSize: 3x4
 

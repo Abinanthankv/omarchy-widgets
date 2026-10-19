@@ -1,6 +1,4 @@
 widget "pixel thoughts" {
-  page: 1
-  order: 12
   size: 6x2
   minSize: 4x2
   padding: 0

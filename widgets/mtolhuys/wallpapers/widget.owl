@@ -1,6 +1,4 @@
 widget "wallpapers" {
-  page: 1
-  order: 3
   size: 3x3
   minSize: 2x2
   padding: 0

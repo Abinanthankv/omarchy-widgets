@@ -1,6 +1,4 @@
 widget "spurgeon" {
-  page: 1
-  order: 3
   size: 6x4
   minSize: 3x3
   meta { description: "C. H. Spurgeon's Faith's Check Book entry for the day, from romans45.org. Tap it to read the whole thing"; version: "1.0"; license: "MIT"; category: "news"; owl: 5 }

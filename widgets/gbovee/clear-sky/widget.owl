@@ -1,7 +1,5 @@
 widget "clear sky" {
   meta { owl: 6; description: "Clear Sky Charts from cleardarksky.com for the observing sites you add; tap for a large view and to manage sites"; version: "1.6"; license: "MIT"; category: "world" }
-  page: 2
-  order: 4
   size: 6x2
   minSize: 4x2
 

@@ -7,8 +7,6 @@ widget "eredivisie" {
     category: "sport"
   }
   requires { pacman: ["curl", "jq", "coreutils", "findutils"] }
-  page: 1
-  order: 46
   size: 6x4
   minSize: 3x3
 

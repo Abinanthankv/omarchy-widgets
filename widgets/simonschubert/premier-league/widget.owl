@@ -7,8 +7,6 @@ widget "premier-league" {
     category: "sport"
   }
   requires { pacman: ["curl", "jq"] }
-  page: 1
-  order: 45
   size: 6x4
   minSize: 3x3
 

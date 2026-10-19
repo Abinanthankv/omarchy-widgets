@@ -1,6 +1,4 @@
 widget "dog of the day" {
-  page: 1
-  order: 3
   size: 3x4
   minSize: 2x3
   padding: 0

@@ -1,6 +1,4 @@
 widget "retro amp" {
-  page: 2
-  order: 3
   size: 6x3
   minSize: 4x2
   padding: 0

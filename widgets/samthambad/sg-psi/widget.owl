@@ -1,6 +1,4 @@
 widget "Singapore PSI" {
-  page: 1
-  order: 61
   size: 3x4
   minSize: 3x4
   padding: 12

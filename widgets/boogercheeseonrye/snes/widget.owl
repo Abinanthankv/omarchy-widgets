@@ -2,8 +2,6 @@ widget "snes" {
   // Your SNES ROM folder: put .sfc/.smc games in ~/roms/snes, or use the
   // screen's "add games" to receive them from the phone. The helper programs
   // live under ~/.cache/owl-snes/tools and are written by this widget itself.
-  page: 1
-  order: 5
   size: 4x4
   minSize: 3x3
   meta { owl: 6; description: "Your SNES games: finds .sfc/.smc ROMs in ~/roms/snes and opens one in RetroArch with the Snes9x core, on a portrait handheld with the game centred and touch buttons below. Send games from your phone"; version: "1.3"; license: "MIT"; category: "games" }

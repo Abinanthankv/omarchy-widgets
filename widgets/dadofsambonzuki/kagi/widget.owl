@@ -1,6 +1,4 @@
 widget "kagi" {
-  page: 1
-  order: 3
   size: 4x1
   minSize: 3x1
   meta { description: "A Kagi search bar: tap it, type a query and results open in the browser, with live Kagi autosuggest."; version: "1.1"; license: "MIT"; category: "productivity"; owl: 6 }

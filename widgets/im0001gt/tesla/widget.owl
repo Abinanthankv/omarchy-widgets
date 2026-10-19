@@ -1,5 +1,4 @@
 widget "tesla" {
-  page: 1
   size: 3x3
   minSize: 3x3
   meta {
