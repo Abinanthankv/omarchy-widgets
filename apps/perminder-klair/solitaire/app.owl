@@ -34,7 +34,6 @@ app "solitaire" {
   state wins = 0 persist
   state counted = false persist
   state draw3 = false persist
-  state deals = 0
   state sure = false
   state sel = null
   state tp = {x: 0, y: 0, n: 0, hold: false}
@@ -46,8 +45,8 @@ app "solitaire" {
   let ready = !won && len(flatten(tab)) > 0 && len(stock) == 0 && len(waste) == 0 && all(range(7), c => down[c] == 0)
 
   // ---- dealing, finishing ----------------------------------------------------------------------
-  when len(stock) + len(waste) + sum(found) + len(flatten(tab)) == 0 { deals = deals + 1 }
-  on deals {
+  // An empty table, on the first start or after "new" clears it, is dealt straight away.
+  when len(stock) + len(waste) + sum(found) + len(flatten(tab)) == 0 {
     let d = shuffle(range(52))
     tab = range(7).map(c => drop(take(d, (c + 1) * (c + 2) / 2), c * (c + 1) / 2))
     down = range(7)
@@ -193,7 +192,7 @@ app "solitaire" {
         }
       } }
       Button { text: sure ? "new game?" : "new"; color: sure ? accent : foreground; onTap: {
-        if sure || moves == 0 || won { deals = deals + 1 } else { sure = true }
+        if sure || moves == 0 || won { stock = []; waste = []; found = [0, 0, 0, 0]; tab = [[], [], [], [], [], [], []] } else { sure = true }
       } }
     }
 
