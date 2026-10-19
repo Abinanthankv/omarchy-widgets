@@ -2,7 +2,6 @@ face "control" {
   // Mission control: the phone and its Linux at a glance, and the means to act on both.
   // Gauges and history up top, a panel of processes, network, a shell, a live terminal and the inbox,
   // the phone's switches, recent apps, and a prompt bar that asks your agent (or runs "!command").
-  page: -3
 
   meta {
     owl: 10

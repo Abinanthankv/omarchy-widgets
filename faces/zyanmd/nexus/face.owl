@@ -1,5 +1,4 @@
 face "nexus" {
-  page: 0
 
   meta {
     owl: 10

@@ -1,5 +1,4 @@
 face "Windows phone applist" {
-  page: 0
   meta {
     owl: 10
     description: "A Windows Phone inspired, searchable and alphabetized list of every installed app"
