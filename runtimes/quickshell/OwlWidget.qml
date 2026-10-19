@@ -68,6 +68,9 @@ Item {
   readonly property int page: root.program ? root.program.page : 1
   readonly property int order: root.program ? root.program.order : 0
   readonly property bool hasScreen: !!(root.program && root.program.screen)
+  // A face (owl 10): a whole home page, drawn without a tile's frame.
+  readonly property bool isFace: !!(root.program && root.program.isFace)
+  readonly property int level: root.program ? root.program.level : 1
 
   signal screenRequested()
   signal screenClosed()
@@ -146,6 +149,8 @@ Item {
     root.sourceSpecs = root.instance.sources()
     root.everySpecs = root.instance.everyTriggers()
     root.render()
+    // Takes in each `on` trigger's first value, and runs the ones that say `first`.
+    root.instance.checkTriggers()
   }
 
   function fail(message) {
@@ -175,6 +180,8 @@ Item {
       if (name === "tileHeight") return root.height / root.dp
       if (name === "screenWidth") return root.screenWidth / root.dp
       if (name === "screenHeight") return root.screenHeight / root.dp
+      // What a navigation bar covers of a face: there is none here.
+      if (name === "screenInset") return 0
       // Omarchy's corners are square.
       if (name === "corners") return 0
       return null
@@ -208,6 +215,47 @@ Item {
   // Tile size feeds tileWidth and tileHeight, which a widget may draw from.
   onWidthChanged: if (root.instance) { root.instance.invalidate(); renderLater.restart() }
   onHeightChanged: if (root.instance) { root.instance.invalidate(); renderLater.restart() }
+
+  // --------------------------------------------------------------- fonts
+
+  // A `font` as a family name: one of the words, or since owl 10 a font of the
+  // widget's own -- an asset, an https URL or a file -- which draws in the mono
+  // font until it has loaded. Up to 8 per file, as on the launcher.
+  property var fontLoaders: ({})
+  property int fontsLoaded: 0
+
+  function fontFamily(name) {
+    void root.fontsLoaded
+    if (name === undefined || name === null || name === "" || name === "mono") return root.monoFamily
+    if (name === "sans") return root.sansFamily
+    if (name === "serif") return "serif"
+    if (name === "icon") return root.iconFamily
+    if (root.level < 10) return root.monoFamily
+    var loader = root.fontLoaders[name]
+    // Made after the binding that asked: a loader that's ready at once would change what it reads.
+    if (loader === undefined) {
+      root.fontLoaders[name] = null
+      Qt.callLater(root.loadFont, name)
+    }
+    return loader && loader.status === FontLoader.Ready ? loader.name : root.monoFamily
+  }
+
+  function loadFont(name) {
+    var url = L.url(name, root.home)
+    if (!url || Object.keys(root.fontLoaders).filter(function(k) { return root.fontLoaders[k] }).length >= 8) return
+    root.fontLoaders[name] = fontLoader.createObject(root, { source: url })
+    root.fontsLoaded++
+  }
+
+  Component {
+    id: fontLoader
+    FontLoader {
+      onStatusChanged: {
+        if (status === FontLoader.Error) root.report("can't load the font " + String(source).slice(0, 80))
+        root.fontsLoaded++
+      }
+    }
+  }
 
   // ------------------------------------------------------------ sources
 

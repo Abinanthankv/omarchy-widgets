@@ -222,7 +222,11 @@ public class OwlOracle {
     program = dev.omalauncher.widgets.lang.Compiler.Companion.compile(src);
     cache = new Value[program.getGlobals().size()];
     root = Env.Companion.root(HOST);
-    StringBuilder out = new StringBuilder("{\"root\":[");
+    // What the file says about itself: where it goes, and a face's status bar.
+    StringBuilder out = new StringBuilder("{\"program\":{\"face\":" + program.isFace() + ",\"page\":" + program.getPage()
+      + ",\"order\":" + program.getOrder() + ",\"padding\":" + quote(Json.INSTANCE.parse(String.valueOf(program.getPadding())).toString())
+      + ",\"background\":" + (program.getBackground() == null ? "null" : show(program.getBackground(), root))
+      + ",\"statusBar\":" + (program.getStatusBar() == null ? "null" : show(program.getStatusBar(), root)) + "},\"root\":[");
     nodes(program.getRoot(), root, out);
     out.append("]");
     if (program.getScreen() != null) {

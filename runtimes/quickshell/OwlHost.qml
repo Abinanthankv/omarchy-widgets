@@ -15,7 +15,9 @@
 
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Services.Mpris
+import "Owl.js" as Owl
 
 QtObject {
   id: root
@@ -63,6 +65,23 @@ QtObject {
     }
   }
 
+  // Time zones by name for fmtTime and parseTime (owl 9): QML's JavaScript has
+  // no Intl, so Owl.js reads the zone's file from the system's tz database.
+  property string zoneDir: "/usr/share/zoneinfo"
+  function readZone(name) {
+    var f = zoneFile.createObject(root, { path: root.zoneDir + "/" + name })
+    try {
+      var data = f.data()
+      return data && data.byteLength ? new Uint8Array(data) : null
+    } finally {
+      f.destroy()
+    }
+  }
+  property Component zoneFile: Component {
+    FileView { blockLoading: true; printErrors: false }
+  }
+  Component.onCompleted: Owl.setZoneReader(root.readZone)
+
   // A widget's text field took or lost focus: a phone raises its keyboard.
   function fieldFocused(focused) {}
 
@@ -94,6 +113,11 @@ QtObject {
     case "androidApp":
     case "notification":
       return widget.report(name + "() opens Android apps and notifications, which this shell does not have")
+    // The launcher's drawer and its coding agents (owl 10); a shell that has them overrides act().
+    case "open":
+      return widget.report("open(\"" + s(0) + "\") opens an app or agent from the launcher's drawer, which this shell does not have")
+    case "ask":
+      return widget.report("ask(...) sends a prompt to the launcher's coding agent, which this shell does not have")
     }
   }
 

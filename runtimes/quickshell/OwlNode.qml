@@ -77,9 +77,31 @@ Item {
   // ------------------------------------------------------------ decoration
 
   readonly property var background: root.p.background
+  // Since owl 10 a background can be a gradient, drawn behind the node; an animated one stays a color.
+  readonly property var backgroundGradient: root.background && root.background.gradient && root.node
+    && root.node.level >= 10 && !root.anim.background ? root.background.gradient : null
   readonly property string backgroundColor: typeof root.background === "string" ? root.background
-    : root.background && root.background.gradient ? (root.background.gradient.colors[0] || "transparent")
+    : root.background && root.background.gradient && !root.backgroundGradient ? (root.background.gradient.colors[0] || "transparent")
     : "transparent"
+
+  // frost (owl 10) blurs the launcher's wallpaper behind a node; this shell has none behind its
+  // widgets, so as where the launcher has no wallpaper, only the background shows.
+  Canvas {
+    anchors.fill: parent
+    visible: !!root.backgroundGradient
+    readonly property var deps: [root.backgroundGradient, width, height, root.p.radius]
+    onDepsChanged: requestPaint()
+    onPaint: {
+      var ctx = getContext("2d")
+      ctx.reset()
+      var g = root.backgroundGradient
+      if (!g || width <= 0 || height <= 0) return
+      ctx.fillStyle = L.backgroundGradient(ctx, g, width, height)
+      ctx.beginPath()
+      L.roundRect(ctx, 0, 0, width, height, L.num(root.p.radius, 0) * root.dp)
+      ctx.fill()
+    }
+  }
 
   Rectangle {
     anchors.fill: parent
@@ -123,6 +145,7 @@ Item {
       case "Terminal": return terminalC
       case "Slider": return sliderC
       case "Input": return inputC
+      case "Popup": return popupC
       default: return null
       }
     }
@@ -133,10 +156,12 @@ Item {
   // Exclusive on press, so a tap lands on the innermost node that wants it
   // and not on every tile around it. A drag past the threshold still goes to
   // whatever drags -- a Flickable, the drawer gesture under Home.
+  // One handler for both, so a long press (owl 10) isn't also a tap.
   TapHandler {
-    enabled: !!root.handlers.onTap
+    enabled: !!root.handlers.onTap || !!root.handlers.onLongPress
     gesturePolicy: TapHandler.ReleaseWithinBounds
-    onTapped: (point) => root.handlers.onTap(point.position.x / root.dp, point.position.y / root.dp)
+    onTapped: (point) => { if (root.handlers.onTap) root.handlers.onTap(point.position.x / root.dp, point.position.y / root.dp) }
+    onLongPressed: if (root.handlers.onLongPress) root.handlers.onLongPress(point.position.x / root.dp, point.position.y / root.dp)
   }
 
   DragHandler {
@@ -470,8 +495,32 @@ Item {
   readonly property var textStyle: L.style(root.p.style)
   function family(f) {
     if (!root.widget) return ""
-    return f === "sans" ? root.widget.sansFamily : f === "serif" ? "serif"
-      : f === "icon" ? root.widget.iconFamily : root.widget.monoFamily
+    return root.widget.fontFamily(f === undefined || f === null ? null : String(f))
+  }
+
+  // A font weight, 100 to 900, from fontWeight or bold.
+  function weightOf(w, bold) {
+    if (typeof w === "number" && isFinite(w)) return Math.max(1, Math.min(1000, Math.round(w)))
+    return bold === true ? Font.Bold : Font.Normal
+  }
+
+  // spans (owl 10) as rich text: each piece styled on its own, the spaces at its ends kept.
+  function spansHtml(pieces) {
+    var out = ""
+    for (var i = 0; i < pieces.length; i++) {
+      var piece = pieces[i] || {}
+      var css = []
+      if (piece.color) css.push("color:" + L.cssColor(piece.color))
+      if (piece.fontWeight !== undefined || piece.bold !== undefined) css.push("font-weight:" + root.weightOf(piece.fontWeight, piece.bold))
+      if (piece.italic !== undefined) css.push("font-style:" + (piece.italic ? "italic" : "normal"))
+      if (typeof piece.fontSize === "number" && isFinite(piece.fontSize)) css.push("font-size:" + Math.max(1, Math.min(1000, piece.fontSize)) * root.dp + "px")
+      if (typeof piece.letterSpacing === "number" && isFinite(piece.letterSpacing)) css.push("letter-spacing:" + Math.max(-1000, Math.min(1000, piece.letterSpacing)) * root.dp + "px")
+      if (piece.font) css.push("font-family:'" + root.family(piece.font).replace(/'/g, "") + "'")
+      var t = String(piece.text === undefined || piece.text === null ? "" : piece.text)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")
+      out += css.length ? "<span style=\"" + css.join(";") + "\">" + t + "</span>" : t
+    }
+    return "<span style=\"white-space:pre-wrap\">" + out + "</span>"
   }
 
   Component {
@@ -483,17 +532,21 @@ Item {
     Item {
       id: textBox
       readonly property real line: label.font.pixelSize * 1.17
+      readonly property bool spanned: Array.isArray(root.p.spans)
       implicitWidth: label.implicitWidth
       implicitHeight: Math.max(1, label.lineCount) * textBox.line
       Text {
         id: label
         width: parent.width
         anchors.verticalCenter: parent.verticalCenter
-        text: root.p.text === undefined || root.p.text === null ? "\u2026" : String(root.p.text)
+        textFormat: textBox.spanned ? Text.RichText : Text.PlainText
+        text: textBox.spanned ? root.spansHtml(root.p.spans)
+          : root.p.text === undefined || root.p.text === null ? "\u2026" : String(root.p.text)
         color: root.p.color || (root.widget ? root.widget.ink(root.textStyle[1] ? "muted" : "foreground") : "white")
-        font.pixelSize: Math.max(1, L.num(root.p.fontSize, root.textStyle[0]) * root.dp)
-        font.weight: root.p.bold === true ? Font.Bold : Font.Normal
+        font.pixelSize: Math.max(1, Math.min(1000, L.num(root.p.fontSize, root.textStyle[0])) * root.dp)
+        font.weight: root.weightOf(root.p.fontWeight, root.p.bold)
         font.italic: root.p.italic === true
+        font.letterSpacing: Math.max(-1000, Math.min(1000, L.num(root.p.letterSpacing, 0))) * root.dp
         font.family: root.family(root.p.font)
         lineHeightMode: Text.FixedHeight
         lineHeight: textBox.line
@@ -752,7 +805,8 @@ Item {
       implicitHeight: field.implicitHeight + 12 * root.dp
       radius: 6 * root.dp
       color: "transparent"
-      border.width: Math.max(1, root.dp)
+      // underline: false (owl 10) leaves the line out, for a field in a frame of its own.
+      border.width: root.p.underline === false ? 0 : Math.max(1, root.dp)
       border.color: root.widget ? root.widget.alpha(root.widget.ink("foreground"), field.activeFocus ? 0.5 : 0.2) : "grey"
       TextInput {
         id: field
@@ -777,6 +831,98 @@ Item {
           text: root.p.placeholder || ""
           color: root.widget ? root.widget.ink("muted") : "grey"
           font: field.font
+        }
+      }
+    }
+  }
+
+  // Popup (owl 10): its children in a menu over everything else, at the start of
+  // the node that holds it, below it or above with position: above, on the other
+  // side when there's no room and never off the window. Framed like the launcher's
+  // menus unless it has a background or border. It takes no room where it's
+  // written; a press outside it or Escape runs onDismiss, which it must have.
+  Component {
+    id: popupC
+    Item {
+      id: popup
+      implicitWidth: 0
+      implicitHeight: 0
+      readonly property Item holder: root.parent ? root.parent.parent || root.parent : root
+      // The top of the window's items, where the menu goes over everything else.
+      readonly property Item windowItem: {
+        var it = root
+        while (it && it.parent) it = it.parent
+        return it === root ? null : it
+      }
+      readonly property bool shown: root.visible && !!popup.windowItem
+      readonly property bool framed: !!root.p.background || L.num(root.p.border, 0) > 0
+      function dismiss() { if (root.handlers.onDismiss) root.handlers.onDismiss() }
+
+      Item {
+        id: overlay
+        parent: popup.windowItem
+        visible: popup.shown
+        anchors.fill: parent
+        z: 10000
+
+        // A press anywhere outside the menu dismisses it.
+        MouseArea {
+          anchors.fill: parent
+          onPressed: popup.dismiss()
+        }
+
+        Rectangle {
+          id: menu
+          focus: popup.shown
+          Keys.onEscapePressed: popup.dismiss()
+          readonly property real pad: popup.framed ? 0 : 4 * root.dp
+          // Where the holder is in the window, followed every frame while the menu shows: mapToItem
+          // isn't told when a layout or a Flickable moves it.
+          property point at: Qt.point(0, 0)
+          FrameAnimation {
+            running: popup.shown
+            onTriggered: {
+              var p = popup.holder.mapToItem(overlay, 0, 0)
+              if (p.x !== menu.at.x || p.y !== menu.at.y) menu.at = p
+            }
+          }
+          readonly property real down: menu.at.y + popup.holder.height
+          readonly property real up: menu.at.y - menu.height
+          width: menuColumn.implicitWidth + 2 * menu.pad
+          height: menuColumn.implicitHeight + 2 * menu.pad
+          x: Math.max(0, Math.min(menu.at.x, overlay.width - menu.width))
+          y: {
+            var above = root.p.position === "above"
+            var y = above ? (menu.up >= 0 || menu.down + menu.height > overlay.height ? menu.up : menu.down)
+              : (menu.down + menu.height <= overlay.height || menu.up < 0 ? menu.down : menu.up)
+            return Math.max(0, Math.min(y, overlay.height - menu.height))
+          }
+          color: popup.framed ? "transparent" : (root.widget ? root.widget.ink("background") : "black")
+          border.width: popup.framed ? 0 : 2 * root.dp
+          border.color: root.widget ? root.widget.ink("accent") : "white"
+          // Presses on the menu stay on it.
+          MouseArea { anchors.fill: parent }
+
+          Column {
+            id: menuColumn
+            x: menu.pad
+            y: menu.pad
+            spacing: L.num(root.p.gap, 4) * root.dp
+            Repeater {
+              model: root.children_.length
+              delegate: Loader {
+                id: item
+                required property int index
+                readonly property var child: root.children_[item.index]
+                x: root.p.align === "center" ? (menuColumn.width - width) / 2 : root.p.align === "end" ? menuColumn.width - width : 0
+                source: item.child ? Qt.resolvedUrl("OwlNode.qml") : ""
+                onLoaded: {
+                  item.item.widget = Qt.binding(function() { return root.widget })
+                  item.item.node = Qt.binding(function() { return item.child })
+                }
+              }
+            }
+          }
         }
       }
     }

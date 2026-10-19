@@ -79,6 +79,9 @@ function draws(list, env) {
     return s + '}'
   }).filter(s => s !== '').join(',')
 }
-let out = '{"root":[' + nodes(program.root, inst.env) + ']'
+// What the file says about itself: where it goes, and a face's status bar.
+let out = '{"program":{"face":' + program.isFace + ',"page":' + program.page + ',"order":' + program.order
+  + ',"padding":' + q(Owl.show(program.padding)) + ',"background":' + (program.background ? show(program.background, inst.env) : 'null')
+  + ',"statusBar":' + (program.statusBar ? show(program.statusBar, inst.env) : 'null') + '},"root":[' + nodes(program.root, inst.env) + ']'
 if (program.screen) out += ',"screen":[' + nodes(program.screen, inst.env) + ']'
 console.log(out + '}')
