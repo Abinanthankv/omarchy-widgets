@@ -49,7 +49,8 @@ are the whole full-screen view, and it has no tile, so no `size`. It goes at
 widget, needs `meta { owl: 8 }`, and should have an `icon`: an SVG in the file, drawn in
 `currentColor` so it takes the user's theme accent, or a PNG embedded as an `asset`. The launcher
 shows it standalone on the theme's background; see the Apps section of the launcher's widget
-README for the style the store's apps share:
+README for the style the store's apps share. A game or a view with a header of its own can leave
+the window's title row out with `title: ""`; launchers before that show an empty title row instead:
 
 ```owl
 app "notes" {

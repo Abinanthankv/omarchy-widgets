@@ -1,4 +1,4 @@
-face "pocket blocks" {
+app "pocket blocks" {
   // Falling blocks on a 1989-style handheld: the green dot-matrix screen up top, and the D-pad,
   // A, B, SELECT and START below it as the controls. One Canvas draws the whole device; a tap
   // on it is worked out to the button under the finger.
@@ -10,16 +10,22 @@ face "pocket blocks" {
   //   START  start, pause and resume (tapping the screen does the same)
   //   SELECT shows or hides the ghost piece
 
-  meta { owl: 10; description: "Falling blocks on a classic green-screen handheld, with its D-pad and A/B buttons as the controls"; version: "1.1"; license: "MIT"; category: "games" }
+  meta { owl: 10; description: "Falling blocks on a classic green-screen handheld, with its D-pad and A/B buttons as the controls"; version: "1.2"; license: "MIT"; category: "games" }
 
-  statusBar: false
-  padding: 0
-  background: "#c9c5bf"
+  // The handheld is the whole view: no title row, and it runs on under the navigation bar.
+  title: ""
+  edge: true
+  icon: """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10 4h28v36a4 4 0 0 1-4 4H14a4 4 0 0 1-4-4z"/>
+    <path d="M15 9h18v14H15z"/>
+    <path d="M18 30v8M14 34h8"/>
+    <path d="M29 36l0 0M34 32l0 0"/>
+  </svg>"""
 
   requires { pacman: ["bash", "coreutils"] }
 
-  // Gravity needs a beat faster than `every` allows: 8 ticks a second. Sources only run while this
-  // page or its neighbour shows, so the game is idle-paused below in case it's left on page 1.
+  // Gravity needs a beat faster than `every` allows: 8 ticks a second. Sources only run while the
+  // app is open, and the game is idle-paused below in case it's left open.
   source tick = stream("i=0; while :; do echo $i; i=$((i+1)); sleep 0.125; done")
 
   // "title", "play", "pause" or "over"
@@ -147,8 +153,8 @@ face "pocket blocks" {
   }
 
   // ---- the device's layout, in dp ------------------------------------------------------------
-  let SW = tileWidth ?? 412
-  let SH = (tileHeight ?? 915) - (screenInset ?? 0)
+  let SW = screenWidth ?? 412
+  let SH = (screenHeight ?? 915) - (screenInset ?? 0)
   let DW = min(SW, SH * 0.55)
   let ox = (SW - DW) / 2
   let m = DW * 0.045
@@ -259,6 +265,7 @@ face "pocket blocks" {
 
   Canvas {
     fill: true
+    background: "#c9c5bf"
 
     onTap: pad = {x: x, y: y, n: pad.n + 1, hold: false}
     onLongPress: pad = {x: x, y: y, n: pad.n + 1, hold: true}
