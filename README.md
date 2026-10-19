@@ -33,7 +33,8 @@ By hand:
 3. Optionally add `preview.png`, a screenshot of the tile (under 300 KB). For the store to show
    the tile in the user's own Omarchy theme, add `previews/<theme>.webp` too, one per theme (under
    100 KB each, named like `tokyo-night.webp`); the launcher's debug build makes them with
-   `scripts/store-previews.sh`.
+   `scripts/store-previews.sh`. This goes for faces and apps as much as widgets: anything that uses
+   theme colors (`accent`, `foreground` and the rest) gets `previews/`, not only `preview.png`.
 4. Check it locally: `java -jar tools/owl.jar review . widgets/<you>/<name>/widget.owl`
 5. Open a pull request. The **review** check runs the same rules and writes a summary of what the
    widget runs and installs; a maintainer reviews it and merges.
@@ -67,7 +68,8 @@ app "notes" {
 ```
 
 Check it with `java -jar tools/owl.jar review . apps/<you>/<name>/app.owl`. Its previews are
-pictures of the whole view at a phone's size, which `scripts/store-previews.sh` makes too. A widget
+pictures of the whole view at a phone's size, which `scripts/store-previews.sh` makes too. An app that
+uses theme colors gets `previews/<theme>.webp` like a widget, not only `preview.png`. A widget
 and an app can't share a name. Launchers from before apps (0.7.2 and older) only read `index.json`, so they never see one.
 
 ## Submitting a face
@@ -89,8 +91,9 @@ face "quiet" {
 }
 ```
 
-Check it with `java -jar tools/owl.jar review . faces/<you>/<name>/face.owl`. Its preview is a
-picture of the whole page at a phone's size. Launchers from before faces (0.8.1 and older) only read
+Check it with `java -jar tools/owl.jar review . faces/<you>/<name>/face.owl`. Its previews are
+pictures of the whole page at a phone's size, which `scripts/store-previews.sh` makes too. A face that
+uses theme colors gets `previews/<theme>.webp` like a widget, not only `preview.png`. Launchers from before faces (0.8.1 and older) only read
 `index.json` and `apps.json`, so they never see one.
 
 ## Rules
