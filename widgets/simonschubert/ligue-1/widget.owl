@@ -2,7 +2,7 @@ widget "ligue-1" {
   meta {
     owl: 5
     description: "Ligue 1 results, live scores and kick-offs from ESPN with club crests, and the table with European and relegation places. Tap for every match"
-    version: "1.0"
+    version: "1.1"
     license: "MIT"
     category: "sport"
   }
@@ -15,9 +15,10 @@ widget "ligue-1" {
   // referred to by file name, kept to [a-z0-9].png.
   source games = cmd("""
     u=https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/scoreboard
-    for i in -3 -2 -1 0 1 2 3 4 5 6; do
-      curl -fsm 10 --compressed "$u?dates=$(date -d "$i day" +%Y%m%d)"
-    done | jq -sc '[.[].events[] | .competitions[0] as $c | {
+    # One curl for all the days, so one process and connection rather than one each, and the dates from bash itself.
+    printf -v now '%(%s)T' -1
+    urls=(); for i in -3 -2 -1 0 1 2 3 4 5 6; do printf -v d '%(%Y%m%d)T' $((now + i * 86400)); urls+=("$u?dates=$d"); done
+    curl -fsm 10 --compressed "${urls[@]}" | jq -sc '[.[].events[] | .competitions[0] as $c | {
       id, at: (.date[0:16] + ":00Z" | fromdateiso8601),
       state: $c.status.type.state, detail: $c.status.type.shortDetail,
       teams: [$c.competitors[] | {

@@ -6,7 +6,7 @@ face "control" {
   meta {
     owl: 10
     description: "Mission control: live CPU, memory, storage and latency, processes you can kill, a shell, a terminal, your inbox, phone switches and an agent prompt"
-    version: "1.0"
+    version: "1.1"
     license: "MIT"
     category: "system"
   }
@@ -33,8 +33,16 @@ face "control" {
   // CPU from every process's ticks over a second (proot freezes /proc/stat): first the whole system's
   // percentage, process count and cores, then the twelve busiest as "cpu% pid rss name".
   source pr = cmd("""
-    t0=$(date +%s%N); A=$(cat /proc/[0-9]*/stat 2>/dev/null); sleep 1; B=$(cat /proc/[0-9]*/stat 2>/dev/null); t1=$(date +%s%N)
-    awk -v ms=$(( (t1 - t0) / 1000000 )) -v cores=$(nproc) '
+    # Compared with the last run's snapshot rather than one taken a second ago, so it doesn't sleep in a
+    # shell every widget shares; only the first run, or one after a long gap, takes a quick pair of its own.
+    f=/tmp/.control-procs-$UID
+    t1=${EPOCHREALTIME/./}; B=$(cat /proc/[0-9]*/stat 2>/dev/null)
+    t0=; [ -s "$f" ] && { read -r t0; A=$(cat); } < "$f"
+    if [ -z "$t0" ] || (( t1 - t0 > 30000000 )); then
+      sleep 0.5; t0=$t1; A=$B; t1=${EPOCHREALTIME/./}; B=$(cat /proc/[0-9]*/stat 2>/dev/null)
+    fi
+    printf '%s\n%s\n' "$t1" "$B" > "$f"
+    awk -v ms=$(( (t1 - t0) / 1000 )) -v cores=$(nproc) '
       function parse(l,  r) { n = l; sub(/^[^(]*[(]/, "", n); sub(/[)][^)]*$/, "", n); r = l; sub(/^.*[)] /, "", r); split(r, f, " "); return f[12] + f[13] }
       NR == FNR { a[$1] = parse($0); next }
       { t = parse($0); d = ($1 in a) ? t - a[$1] : 0; tot += d; k++; out[k] = sprintf("%.1f %d %d %s", d * 1000 / ms, $1, f[22] * 4096, n) }
