@@ -9,7 +9,7 @@ widget "storage" {
   meta {
     owl: 10
     description: "A treemap of your Linux folders and what fills them, phone storage free and used, and caches that are safe to clean, per item or all at once."
-    version: "1.2"
+    version: "1.3"
     license: "MIT"
     category: "system"
   }
@@ -188,6 +188,8 @@ widget "storage" {
     fresh() { [ -s "$CACHE" ] && [ $(( $(date +%s) - $(stat -c %Y "$CACHE") )) -lt 120 ]; }
     case $1 in
       scan)
+        # a status from the start, so the first clean is a change that `on doneAt` sees
+        [ -s "$D/status.json" ] || status "" "" 0 0 0
         fresh && exec cat "$CACHE"
         exec 9>"$LOCK"
         # a clean holds the lock while it runs; the last scan stands in until it's done
