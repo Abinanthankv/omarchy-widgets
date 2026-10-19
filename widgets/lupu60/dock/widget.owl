@@ -1,6 +1,4 @@
 widget "dock" {
-  page: 1
-  order: 99               // after the other widgets, so it lands at the bottom
   size: 6x2
   minSize: 4x2
   padding: 8
