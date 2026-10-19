@@ -1,5 +1,5 @@
 widget "miilo" {
-  meta { owl: 6; description: "Animated agents and work across selected systems"; version: "1.6.3"; license: "MIT"; category: "dev" }
+  meta { owl: 6; description: "Animated agents and work across selected systems"; version: "1.6.4"; license: "MIT"; category: "dev" }
   page: 1
   order: 7
   size: 3x2
@@ -27,8 +27,8 @@ trap 'rm -rf -- "$stage"' EXIT
 asset="miilo-owl-widgets-$version-linux-aarch64.tar.gz"
 url="https://github.com/miilo-ai/miilo-owl-widgets/releases/download/v$version"
 curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 180 "$url/$asset" -o "$stage/$asset" || { echo "Miilo $version could not be downloaded. Check your connection and whether this release is published; no helper was installed." >&2; exit 1; }
-curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 30 "$url/SHA256SUMS" -o "$stage/SHA256SUMS" || { echo "Release checksums are unavailable; no helper was installed." >&2; exit 1; }
-expected=$(awk -v name="$asset" '$2 == name { print $1 }' "$stage/SHA256SUMS")
+# The archive the store reviewed; a release asset swapped later fails this check.
+expected=d418c6e915054fb51f5d4c03f5ba10cb3327ef08b42f762a4be54370783ab0e5
 [[ "$expected" =~ ^[a-fA-F0-9]{64}$ ]] || { echo 'Missing or ambiguous release checksum.' >&2; exit 1; }
 printf '%s  %s\n' "$expected" "$asset" > "$stage/verified.sha256"
 (cd "$stage" && sha256sum --check verified.sha256)
