@@ -2,8 +2,6 @@ widget "tweaks" {
   // A tweak tool for the launcher (omalauncher-tweaks-tool): quick switches on the tile, and every setting behind a
   // tap, as its screen. The Python in `py` below reads defaults.toml for the settings and their descriptions, and
   // edits style.toml line by line so its comments stay; restore and reset snapshot the current style first.
-  page: 1
-  order: 1
   size: 6x2
   minSize: 3x2
   // Every knob the launcher has, in one place: style.toml's settings (read from defaults.toml, so new ones show up
