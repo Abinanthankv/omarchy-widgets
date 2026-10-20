@@ -2,7 +2,7 @@ widget "tailscale-devices" {
   meta {
     owl: 6
     description: "Lists connected and disconnected Tailscale devices with copy buttons for IP and MagicDNS, plus auto-refresh. Requires a Tailscale API key."
-    version: "1.0"
+    version: "1.0.1"
     license: "MIT"
     category: "system"
   }
@@ -34,6 +34,9 @@ widget "tailscale-devices" {
   let allDevices = data == null ? [] : (data.devices ?? []).sortBy(device => lower(device.hostname ?? device.name ?? ""))
   let connectedDevices = allDevices.filter(device => device.connectedToControl == true)
   let disconnectedDevices = allDevices.filter(device => device.connectedToControl != true)
+  let updatedTime = updatedAt == 0 ? "--:--" : fmtTime(updatedAt, "hh:mm a")
+  // Beside the two 72 dp buttons, "Updated at 09:15 PM" needs a tile about 320 dp wide; narrower ones show just the time.
+  let wideFooter = tileWidth == null || tileWidth >= 320
 
   component PeerSummary(device, showDetails = false) {
     let ip = first(device.addresses ?? []) ?? "no IP"
@@ -166,7 +169,7 @@ widget "tailscale-devices" {
     Row {
       fill: width
       align: center
-      Text { text: updatedAt == 0 ? "Updated at --:--" : "Updated at ${fmtTime(updatedAt, "hh:mm a")}"; style: small; color: muted; weight: 1; maxLines: 1 }
+      Text { text: wideFooter ? "Updated at ${updatedTime}" : updatedTime; style: small; color: muted; weight: 1; maxLines: 1 }
       Box {
         width: 72
         align: center
