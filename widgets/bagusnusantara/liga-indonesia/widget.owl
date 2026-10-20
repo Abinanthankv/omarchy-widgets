@@ -1,5 +1,5 @@
 widget "liga indonesia" {
-  meta { owl: 5; description: "Klub favoritmu (default Persik Kediri) di Super League Indonesia: posisi, form, laga berikutnya dan klasemen, dari FotMob"; version: "2.2"; license: "MIT"; category: "sport" }
+  meta { owl: 5; description: "Klub favoritmu (default Persik Kediri) di Super League Indonesia: posisi, form, laga berikutnya dan klasemen, dari FotMob"; version: "2.3"; license: "MIT"; category: "sport" }
   size: 6x5
   minSize: 3x3
 
@@ -61,8 +61,9 @@ widget "liga indonesia" {
   let nextGame = first(upcoming)
   let lastGame = last(played)
   let form = played.drop(max(0, len(played) - 5))
-  // The club's neighbours in the table: one or two above and below.
-  let aroundN = (rows ?? 5) >= 6 ? 5 : 3
+  // The club's neighbours in the table: as many rows (about 19dp each) as fit under the
+  // header, form and matches (about 195dp), so a tall tile isn't left half empty.
+  let aroundN = tileHeight == null ? ((rows ?? 5) >= 6 ? 5 : 3) : clamp(floor((tileHeight - 195) / 19), 3, 18)
   let around = table.drop(clamp((club.r ?? 1) - 1 - floor(aroundN / 2), 0, max(0, len(table) - aroundN))).take(aroundN)
   state tab = "klub"
 
