@@ -24,8 +24,8 @@ Anyone with that URL on the device can browse Linux folders and save files to
 writable destinations; keep the upload page private. No session URL, token or
 user data is included in this submission.
 
-Uploads stream to temporary files, remove incomplete files, and use hard links
-to avoid overwriting existing files. The server stops after the browser
+Uploads stream to temporary files, remove incomplete files, and reserve a free
+name before moving into it, so existing files are never overwritten. The server stops after the browser
 finishes the selected batch, when stopped manually, or after five idle minutes.
 
 `preview.png` is the screen image produced by `owl-check`. The Everforest WebP
