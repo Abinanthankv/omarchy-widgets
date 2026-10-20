@@ -10,9 +10,10 @@ app "pocket blocks" {
   //   START  start, pause and resume (tapping the screen does the same)
   //   SELECT shows or hides the ghost piece
 
-  meta { owl: 11; description: "Falling blocks on a classic green-screen handheld, with its D-pad and A/B buttons as the controls"; version: "1.2"; license: "MIT"; category: "games" }
+  meta { owl: 12; description: "Falling blocks on a classic green-screen handheld, with its D-pad and A/B buttons as the controls"; version: "1.3"; license: "MIT"; category: "games" }
 
   // The handheld is the whole view: no title row or status bar, and it runs on under the navigation bar.
+  // Its body runs up around the camera too; the device itself starts below it (screenTop).
   title: ""
   statusBar: false
   edge: true
@@ -155,7 +156,8 @@ app "pocket blocks" {
 
   // ---- the device's layout, in dp ------------------------------------------------------------
   let SW = screenWidth ?? 412
-  let SH = (screenHeight ?? 915) - (screenInset ?? 0)
+  let T = screenTop ?? 0
+  let SH = (screenHeight ?? 915) - (screenInset ?? 0) - T
   let DW = min(SW, SH * 0.55)
   let ox = (SW - DW) / 2
   let m = DW * 0.045
@@ -164,13 +166,13 @@ app "pocket blocks" {
   let lcdH = 20 * c
   let bzX = ox + m
   let bzW = DW - 2 * m
-  let bzY = max(16, SH * 0.025)
+  let bzY = T + max(16, SH * 0.025)
   let bzH = lcdH + 58
   let lcdX = bzX + (bzW - lcdW) / 2
   let lcdY = bzY + 28
   let logoY = bzY + bzH + 24
   let ctrlY = logoY + 26
-  let ctrlH = SH - ctrlY
+  let ctrlH = T + SH - ctrlY
   let R = min(DW * 0.14, ctrlH * 0.22)
   let aw = R * 0.68
   let dpX = ox + DW * 0.24
