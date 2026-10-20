@@ -2,7 +2,7 @@ widget "Spreedy" {
   size: 6x3
   minSize: 4x2
   padding: 12
-  meta { owl: 6; description: "One-word speed reader for EPUB and text files, with adjustable WPM."; version: "1.13"; license: "MIT"; category: "productivity" }
+  meta { owl: 6; description: "One-word speed reader for EPUB and text files, with adjustable WPM."; version: "1.14"; license: "MIT"; category: "productivity" }
   requires { pacman: ["python"] }
   state path = "" persist
   state draft = ""
@@ -138,16 +138,26 @@ except Exception as e: print(json.dumps(dict(error=str(e),words=[],total=0,title
       }
     }
   }
-  component Reader(availableHeight = 0, availableWidth = 0) {
-    let expanded = availableHeight > 420
-    let passageCount = min(240, max(40, floor((availableHeight - 250) / 22) * max(1, floor((availableWidth - 24) / 65))))
+  component Reader(availableHeight = 0, availableWidth = 0, tall = false) {
+    // A tile taller than wide (the landscape home screen) stacks the header and shares its spare height
+    // between the word and a short passage; the count is conservative so the current word stays in view.
+    let expanded = availableHeight > 420 || tall
+    let tallLines = max(1, floor(((availableHeight - 24 - 110) / 2) / 22))
+    let passageCount = tall ? max(4, tallLines * max(1, floor((availableWidth - 24) / 60))) : min(240, max(40, floor((availableHeight - 250) / 22) * max(1, floor((availableWidth - 24) / 65))))
     let passageStart = floor(local / passageCount) * passageCount
     let passage = ready ? book.words.drop(passageStart).take(passageCount) : []
     Column {
       fill: true; gap: 8
+      if tall {
+        Text { text: book.title ?? "Spreedy"; style: small; maxLines: 2; fill: width }
+      }
       Row {
-        Text { text: book.title ?? "Spreedy"; style: small; maxLines: 1; weight: 1 }
-        Text { text: "${wpm} wpm · ${swipeSeconds}s"; style: muted; width: 130; align: end }
+        if tall {
+          Text { text: "${wpm} wpm · ${swipeSeconds}s"; style: muted; maxLines: 1; weight: 1 }
+        } else {
+          Text { text: book.title ?? "Spreedy"; style: small; maxLines: 1; weight: 1 }
+          Text { text: "${wpm} wpm · ${swipeSeconds}s"; style: muted; width: 130; align: end }
+        }
         Button { text: "⚙"; onTap: { bookmark = playing && ready ? min(total - 1, origin + floor(max(0, time - started) * wpm / 60)) : bookmark; playing = false; resume = false; settings = true; screen() } }
       }
       Box {
@@ -173,15 +183,17 @@ except Exception as e: print(json.dumps(dict(error=str(e),words=[],total=0,title
       }
       if expanded && ready {
         Column {
-          weight: 3; fill: width; gap: 8; clip: true
-          Text { text: "Reading passage"; style: label; color: muted }
+          weight: tall ? 1 : 3; fill: width; gap: 8; clip: true
+          if !tall {
+            Text { text: "Reading passage"; style: label; color: muted }
+          }
           Flow {
             fill: width; weight: 1; gap: 0; clip: true
             for entry, i in passage {
               Text {
                 text: entry
                 font: mono; fontSize: 12; maxLines: 1
-                width: min(availableWidth - 24, len(entry) * 7.32 + 8)
+                width: min(availableWidth - 24, len(entry) * 7.32 + 10)
                 height: 22; padding: [4, 2]
                 color: passageStart + i == (playing ? min(total - 1, origin + floor(max(0, time - started) * wpm / 60)) - chunk * 600 : local) ? background : alpha(foreground, 0.8)
                 background: passageStart + i == (playing ? min(total - 1, origin + floor(max(0, time - started) * wpm / 60)) - chunk * 600 : local) ? accent : alpha(surface, 0)
@@ -204,7 +216,7 @@ except Exception as e: print(json.dumps(dict(error=str(e),words=[],total=0,title
       }
     }
   }
-  Reader { availableHeight: tileHeight ?? 0; availableWidth: tileWidth ?? 0 }
+  Reader { availableHeight: tileHeight ?? 0; availableWidth: tileWidth ?? 0; tall: tileWidth != null && tileHeight != null && tileHeight > tileWidth * 1.3 }
   screen {
     title: "Spreedy"
     if settings {
