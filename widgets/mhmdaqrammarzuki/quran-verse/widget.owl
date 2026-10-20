@@ -143,13 +143,13 @@ widget "quran-verse" {
   let n = floor(hash("ayah", day) * 6236) + 1
 
   source now = clock every 1m
-  source ar = http("https://api.alquran.cloud/v1/ayah/${enc(int(n))}/ar.alquran") json timeout 10s
-  source tr = http("https://api.alquran.cloud/v1/ayah/${enc(int(n))}/${enc(pick.edition)}") json timeout 10s
+  source ar = http("https://api.alquran.cloud/v1/ayah/${enc(int(n))}/ar.alquran") every 6h json timeout 10s
+  source tr = http("https://api.alquran.cloud/v1/ayah/${enc(int(n))}/${enc(pick.edition)}") every 6h json timeout 10s
   // Korean is the only edition here that truncates: 2:286 comes back as three
   // characters. When a translation comes back far shorter than the Arabic it
   // translates, that is one of those, and an English copy stands in. A null URL
   // pauses the source, so it only ever fetches for Korean.
-  source fb = http(pick.edition == "ko.korean" ? "https://api.alquran.cloud/v1/ayah/${enc(int(n))}/en.asad" : null) json timeout 10s
+  source fb = http(pick.edition == "ko.korean" ? "https://api.alquran.cloud/v1/ayah/${enc(int(n))}/en.asad" : null) every 6h json timeout 10s
 
   state lang = "en" persist
   state arab = true persist
