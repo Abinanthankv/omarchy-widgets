@@ -2,7 +2,7 @@ widget "btclock" {
   size: 6x2
   minSize: 4x2
   padding: 14
-  meta { description: "Live Bitcoin network data as BTClock-style e-paper panels: block height, price, Moscow time, fees, halving and supply"; version: "1.3.1"; license: "MIT"; category: "finance"; owl: 5 }
+  meta { description: "Live Bitcoin network data as BTClock-style e-paper panels: block height, price, Moscow time, fees, halving and supply"; version: "1.4"; license: "MIT"; category: "finance"; owl: 5 }
 
   // mempool.space's public API. The tile rotates the fields you enable, in the order you set.
   source height = http("https://mempool.space/api/blocks/tip/height") every 60s timeout 15s
@@ -61,25 +61,51 @@ widget "btclock" {
 
   every 15s { idx = (idx + 1) % count }
 
+  // A tile taller than wide (the landscape home screen) stacks the seven panels in a column,
+  // each as tall as fits, with the digits scaled to the panel.
+  let tall = tileWidth != null && tileHeight != null && tileHeight > tileWidth * 1.3
+  let tallGap = 5
+  let tallH = tall ? clamp((tileHeight - 28 - 40 - 6 * tallGap) / 7, 18, 64) : 64
+  let tallFont = min(36, floor(tallH * 0.78))
+
   component Panels(value, tint) {
     let n = 7
     let s = sub(value ?? "", 0, n)
     let extra = n - len(s)
     let left = extra > 0 ? floor(extra / 2) : 0
     let full = pad("", left, " ") + s + pad("", max(extra - left, 0), " ")
-    Row {
-      gap: 6
-      onTap: idx = (idx + 1) % count
-      for i in range(n) {
-        Box {
-          weight: 1
-          height: 64
-          background: color0
-          border: 2
-          borderColor: alpha(tint ?? foreground, 0.45)
-          radius: 8
-          align: center
-          Text { text: sub(full, i, i + 1); font: mono; fontSize: 36; bold: true; color: tint ?? foreground; align: center }
+    if tall {
+      Column {
+        gap: tallGap
+        onTap: idx = (idx + 1) % count
+        for i in range(n) {
+          Box {
+            fill: width
+            height: tallH
+            background: color0
+            border: 2
+            borderColor: alpha(tint ?? foreground, 0.45)
+            radius: 8
+            align: center
+            Text { text: sub(full, i, i + 1); font: mono; fontSize: tallFont; bold: true; color: tint ?? foreground; align: center }
+          }
+        }
+      }
+    } else {
+      Row {
+        gap: 6
+        onTap: idx = (idx + 1) % count
+        for i in range(n) {
+          Box {
+            weight: 1
+            height: 64
+            background: color0
+            border: 2
+            borderColor: alpha(tint ?? foreground, 0.45)
+            radius: 8
+            align: center
+            Text { text: sub(full, i, i + 1); font: mono; fontSize: 36; bold: true; color: tint ?? foreground; align: center }
+          }
         }
       }
     }
@@ -89,10 +115,10 @@ widget "btclock" {
     gap: 8
     Row {
       align: center
-      padding: [0, 8]
+      padding: [0, tall ? 2 : 8]
       onTap: screen()
-      Text { text: cur == null ? "bitcoin…" : upper(cur.label); style: label; color: muted; weight: 1; maxLines: 1 }
-      Text { text: "${(idx % count) + 1}/${count}"; style: label; color: muted; width: 44; align: end; maxLines: 1 }
+      Text { text: cur == null ? "bitcoin…" : upper(cur.label); style: label; color: muted; weight: 1; maxLines: tall ? 2 : 1 }
+      Text { text: "${(idx % count) + 1}/${count}"; style: label; color: muted; width: tall ? 30 : 44; align: end; maxLines: 1 }
     }
     Panels { value: cur == null ? null : (cur.panel ?? cur.value); tint: cur == null ? foreground : cur.tint }
   }
