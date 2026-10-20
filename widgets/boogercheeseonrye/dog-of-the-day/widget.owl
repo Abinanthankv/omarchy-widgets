@@ -3,7 +3,7 @@ widget "dog of the day" {
   minSize: 2x3
   padding: 0
 
-  meta { owl: 6; description: "A random dog every day from the dog.ceo collection, with its breed. Tap the tile for another dog, or open it for the dogs of past days."; version: "1.1"; license: "MIT"; category: "fun" }
+  meta { owl: 6; description: "A random dog every day from the dog.ceo collection, with its breed. Tap the tile for another dog, or open it for the dogs of past days."; version: "1.1.1"; license: "MIT"; category: "fun" }
 
   // dog.ceo is free, key-less and covers ~165 breeds with many photos each.
   // curl fetches one dog a day into ~/.cache/dogapi and keeps it until tomorrow,
@@ -46,7 +46,7 @@ widget "dog of the day" {
 
     // A scrim so the breed stays readable on any photo.
     Canvas {
-      let h = 96
+      let h = tileWidth < 260 ? 120 : 96
       rect(0, height - h, width, h, fill: linear(0, height - h, 0, height, [alpha(background, 0), alpha(background, 0.88)]))
     }
 
@@ -55,8 +55,8 @@ widget "dog of the day" {
       justify: end
       padding: 12
       gap: 2
-      Text { text: pretty; style: title; maxLines: 1 }
-      Text { text: "dog of the day${has ? " · " + dog.day : ""}"; style: small; color: muted; maxLines: 1 }
+      Text { text: pretty; style: title; maxLines: 2 }
+      Text { text: has ? (tileWidth < 260 ? dog.day : "dog of the day · " + dog.day) : "dog of the day"; style: small; color: muted; maxLines: 1 }
     }
   }
 
