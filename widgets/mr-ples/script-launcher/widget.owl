@@ -7,7 +7,7 @@ widget "script-launcher" {
   size: 6x3
   minSize: 3x2
 
-  meta { owl: 7; description: "A launcher widget for shell scripts"; version: "1.0"; license: "MIT"; category: "system" }
+  meta { owl: 7; description: "A launcher widget for shell scripts"; version: "1.0.1"; license: "MIT"; category: "system" }
 
   requires { pacman: ["jq"] }
 
@@ -50,6 +50,10 @@ widget "script-launcher" {
   let nameOk = submitted && pendingName != "" && match(pendingName, "^[A-Za-z0-9][A-Za-z0-9_-]*$") != null
   let nameTaken = nameOk && any(list ?? [], r => r.name == pendingName)
   let editCmd = editor == null ? "vi" : editor == "" ? "vi" : editor
+  // A narrow tile (the landscape home screen, ~220dp) has no room for the date
+  // column: the short date moves up beside the name, so the hint gets the width
+  // (and, the tile being tall, a second line).
+  let narrow = tileWidth != null && tileWidth < 300
 
   when submitted && !nameOk && pendingName != "" { addErr = "letters, digits, - and _ only" }
   when submitted && nameOk && nameTaken { addErr = "a script with that name exists" }
@@ -85,10 +89,20 @@ widget "script-launcher" {
             Column {
               weight: 1
               gap: 1
-              Text { text: r.name; font: mono; fontSize: 14; maxLines: 1 }
-              Text { text: r.hint ?? ""; fontSize: 12; color: muted; maxLines: 1 }
+              if narrow {
+                Row {
+                  gap: 6
+                  Text { text: r.name; font: mono; fontSize: 14; maxLines: 1; weight: 1 }
+                  Text { text: fmtTime(r.mtime, "d MMM"); style: small; color: muted; width: 48; align: end }
+                }
+              } else {
+                Text { text: r.name; font: mono; fontSize: 14; maxLines: 1 }
+              }
+              Text { text: r.hint ?? ""; fontSize: 12; color: muted; maxLines: narrow ? 2 : 1 }
             }
-            Text { text: fmtTime(r.mtime, "EEE d MMM"); style: small; color: muted; width: 72; align: end }
+            if !narrow {
+              Text { text: fmtTime(r.mtime, "EEE d MMM"); style: small; color: muted; width: 72; align: end }
+            }
           }
         }
       }
