@@ -1,5 +1,5 @@
 widget "clear sky" {
-  meta { owl: 6; description: "Clear Sky Charts from cleardarksky.com for the observing sites you add; tap for a large view and to manage sites"; version: "1.6"; license: "MIT"; category: "world" }
+  meta { owl: 6; description: "Clear Sky Charts from cleardarksky.com for the observing sites you add; tap for a large view and to manage sites"; version: "1.7"; license: "MIT"; category: "world" }
   size: 6x2
   minSize: 4x2
 
@@ -75,6 +75,8 @@ widget "clear sky" {
   let fitF = rotated ? min(viewW / ih, viewH / cw) : min(viewW / cw, viewH / ih)
   let panX = max(0, ((rotated ? ih : cw) * fitF * zoom - viewW) / 2)
   let panY = max(0, ((rotated ? cw : ih) * fitF * zoom - viewH) / 2)
+  // A tile taller than wide (the landscape home screen) shows the chart turned a quarter.
+  let tall = tileWidth != null && tileHeight != null && tileHeight > tileWidth * 1.3
 
   // Lists charts: a state's or province's page when `browse` is set, else the site's search for
   // `query`. State pages are kept for a day. Writes {q, p, items: [{key, name, region, bortle, about}]} to list.json.
@@ -164,22 +166,43 @@ widget "clear sky" {
   } else {
     Column {
       gap: 4
-      Row {
-        Text { text: cur.name ?? sites[i]; style: body; bold: true; maxLines: 1; weight: 1 }
+      if tall {
+        // A tile taller than wide (the landscape home screen): the name gets its own line
+        // above the ‹ 1/2 › buttons, and the chart turns a quarter clockwise like the full
+        // screen's rotate mode, so it runs down the tile instead of shrinking to a strip.
+        Text { text: cur.name ?? sites[i]; style: body; bold: true; maxLines: 2 }
         if len(sites) > 1 {
-          Button { text: "‹"; onTap: sel = (i + len(sites) - 1) % len(sites) }
-          Text { text: "${i + 1}/${len(sites)}"; style: muted; width: 36; align: center }
-          Button { text: "›"; onTap: sel = (i + 1) % len(sites) }
+          Row {
+            align: center
+            Button { text: "‹"; onTap: sel = (i + len(sites) - 1) % len(sites) }
+            Text { text: "${i + 1}/${len(sites)}"; style: muted; weight: 1; align: center }
+            Button { text: "›"; onTap: sel = (i + 1) % len(sites) }
+          }
+        }
+      } else {
+        Row {
+          Text { text: cur.name ?? sites[i]; style: body; bold: true; maxLines: 1; weight: 1 }
+          if len(sites) > 1 {
+            Button { text: "‹"; onTap: sel = (i + len(sites) - 1) % len(sites) }
+            Text { text: "${i + 1}/${len(sites)}"; style: muted; width: 36; align: center }
+            Button { text: "›"; onTap: sel = (i + 1) % len(sites) }
+          }
         }
       }
       if cur.ok {
         Canvas {
           fill: width
           weight: 1
-          let f = min(width / cw, height / ih)
-          let l = (width - cw * f) / 2
-          let t = (height - ih * f) / 2
-          clip(l, t, cw * f, ih * f) { image(cur.path, l, t, iw * f, ih * f) }
+          let f = tall ? min(width / ih, height / cw) : min(width / cw, height / ih)
+          let bw = cw * f
+          let bh = ih * f
+          let cx = width / 2
+          let cy = height / 2
+          if tall {
+            rotate(90, cx, cy) { clip(cx - bw / 2, cy - bh / 2, bw, bh) { image(cur.path, cx - bw / 2, cy - bh / 2, iw * f, bh) } }
+          } else {
+            clip(cx - bw / 2, cy - bh / 2, bw, bh) { image(cur.path, cx - bw / 2, cy - bh / 2, iw * f, bh) }
+          }
         }
       } else {
         if cur == null {
