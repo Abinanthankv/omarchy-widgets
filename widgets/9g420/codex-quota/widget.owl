@@ -4,7 +4,7 @@ widget "Codex Quota and Resets" {
   size: 6x4
   minSize: 2x2
   padding: 10
-  meta { owl: 6; version: "2.2.0"; author: "9G420"; license: "MIT"; category: "dev"; description: "Seven-language Codex quota card with reset countdowns, Tibo announcements, statistics and a calendar." }
+  meta { owl: 6; version: "2.2.1"; author: "9G420"; license: "MIT"; category: "dev"; description: "Seven-language Codex quota card with reset countdowns, Tibo announcements, statistics and a calendar." }
   requires { pacman: ["python"] }
 
   state refreshRequest = 0
@@ -761,6 +761,7 @@ if __name__ == '__main__':
   let tiny = (cols ?? 4) <= 2 && (rows ?? 4) <= 2
   let narrow = (cols ?? 4) <= 2 && (rows ?? 4) > 2
   let wide = (cols ?? 4) > (rows ?? 4)
+  let slimCards = (tileWidth ?? 400) < 340
 
   when tibo.reset_key != null && ackResetKey == "" { ackResetKey = tibo.reset_key }
   when tibo.key != null && seenTibo == "" { seenTibo = tibo.key }
@@ -790,7 +791,7 @@ if __name__ == '__main__':
   component Quota(label, data, dense = false, mini = false, horizontal = false) {
     Column {
       gap: mini ? 2 : dense ? 3 : 5
-      padding: mini ? 4 : dense ? 8 : 14
+      padding: mini ? 4 : dense ? 8 : slimCards ? 10 : 14
       background: panel
       radius: 0
       if mini {
@@ -849,7 +850,12 @@ if __name__ == '__main__':
           maxLines: 1
         }
         if !dense && data.resets_at != null {
-          Text { text: strings.expected_reset[languageIndex] + fmtTime(data.resets_at, "MM-dd HH:mm"); font: sans; fontSize: 12; color: quiet; maxLines: 1 }
+          if slimCards {
+            Text { text: trim(strings.expected_reset[languageIndex]); font: sans; fontSize: 12; color: quiet; maxLines: 1 }
+            Text { text: fmtTime(data.resets_at, "MM-dd HH:mm"); font: sans; fontSize: 12; color: quiet; maxLines: 1 }
+          } else {
+            Text { text: strings.expected_reset[languageIndex] + fmtTime(data.resets_at, "MM-dd HH:mm"); font: sans; fontSize: 12; color: quiet; maxLines: 1 }
+          }
         }
       }
     }
