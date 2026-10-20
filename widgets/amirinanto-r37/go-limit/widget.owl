@@ -2,7 +2,7 @@ widget "go limit" {
   meta {
     owl: 5
     description: "OpenCode Go usage per model: 5-hour, weekly and monthly ring gauges against that model's limits, credit left, cost sparkline. Estimated from the local opencode database."
-    version: "1.4"
+    version: "1.5"
     license: "MIT"
     category: "dev"
   }
@@ -122,6 +122,9 @@ widget "go limit" {
   let pct5 = free || cost5 == null ? null : cost5 / (P.ml / 5) * 100
   let pctw = free || costw == null ? null : costw / (P.ml / 2) * 100
   let pctm = free || costm == null ? null : costm / P.ml * 100
+  // A short tile (the landscape home screen) gets smaller rings and one "$x left" line per gauge
+  let short = tileHeight != null && tileHeight < 190
+  let ring = clamp((tileHeight ?? 200) * 0.35, 36, 60)
 
   component G(label, pct, cost, limit, free) {
     let tint = pct == null ? muted : pct >= 100 ? red : pct >= 80 ? orange : accent
@@ -131,18 +134,20 @@ widget "go limit" {
       weight: 1
       align: center
       Box {
-        size: 60
+        size: ring
         align: center
-        Ring { fill: true; thickness: 7; value: pct == null ? 0 : min(max(pct, 0), 100); color: pct == null ? surface : tint; animate value: tween(500ms) }
+        Ring { fill: true; thickness: short ? 5 : 7; value: pct == null ? 0 : min(max(pct, 0), 100); color: pct == null ? surface : tint; animate value: tween(500ms) }
         Text {
           text: pct == null ? (free ? "free" : "…") : "${fixed(pct, 0)}%"
-          style: body
+          style: short ? "small" : "body"
           color: tint
           align: center
         }
       }
       Text { text: label; style: label; color: muted }
-      Text { text: free ? "free model" : cost == null || limit == null ? "…" : '$' + fixed(cost, 2) + ' of $' + fixed(limit, 2); style: small; color: muted }
+      if !short {
+        Text { text: free ? "free model" : cost == null || limit == null ? "…" : '$' + fixed(cost, 2) + ' of $' + fixed(limit, 2); style: small; color: muted }
+      }
       Text {
         text: free ? "unlimited" : left == null ? "…" : '$' + fixed(left, 2) + ' left'
         style: small; color: left != null && limit > 0 && left / limit <= 0.2 ? tint : muted
@@ -174,10 +179,11 @@ widget "go limit" {
   onTap: terminal("opencode stats")
 
   Column {
-    gap: 8
+    gap: short ? 4 : 8
     Text {
       text: "opencode go · " + get(P, "name", sel)
       style: muted
+      maxLines: short ? 1 : null
       onTap: screen()
     }
     Row {
