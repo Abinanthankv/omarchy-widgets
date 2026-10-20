@@ -3,7 +3,7 @@ widget "ISS Tracker" {
   minSize: 5x2
   meta {
     description: "The next International Space Station passes you can actually see over any zip or postal code worldwide: when, how high it gets and which way to look"
-    version: "1.2"; license: "MIT"; category: "world"; owl: 6
+    version: "1.3"; license: "MIT"; category: "world"; owl: 6
   }
   requires { pacman: ["python"] }
 
@@ -372,6 +372,9 @@ widget "ISS Tracker" {
   let passes = (iss.passes ?? []).filter(p => p.set > now)
   let next = first(passes)
   let up = next != null && next.rise <= now
+  // A tile taller than wide (the landscape home screen) is too narrow for one-line
+  // pass rows: each pass takes two lines and the countdown gets its own line.
+  let tall = tileWidth != null && tileHeight != null && tileHeight > tileWidth * 1.3
 
   // Square-cut pixel lettering; a/b/c bands give it a chrome gradient.
   let titleArt = """
@@ -402,11 +405,25 @@ widget "ISS Tracker" {
   onTap: screen()
 
   component PassRow(p) {
-    Row {
-      Text { text: fmtTime(p.rise, "EEE M/d h:mm a"); width: 160 }
-      Text { text: "${p.maxAlt}°"; width: 40; color: p.maxAlt >= 40 ? accent : foreground }
-      Text { text: "${p.from} → ${p.to}"; weight: 1; style: small; color: muted }
-      Text { text: "${round((p.set - p.rise) / 60)} min"; width: 56; style: small; color: green; align: end }
+    if tall {
+      Column {
+        gap: 0
+        Row {
+          Text { text: fmtTime(p.rise, "EEE M/d h:mm a"); weight: 1; maxLines: 1 }
+          Text { text: "${p.maxAlt}°"; width: 40; align: end; color: p.maxAlt >= 40 ? accent : foreground }
+        }
+        Row {
+          Text { text: "${p.from} → ${p.to}"; weight: 1; style: small; color: muted }
+          Text { text: "${round((p.set - p.rise) / 60)} min"; width: 56; style: small; color: green; align: end }
+        }
+      }
+    } else {
+      Row {
+        Text { text: fmtTime(p.rise, "EEE M/d h:mm a"); width: 160 }
+        Text { text: "${p.maxAlt}°"; width: 40; color: p.maxAlt >= 40 ? accent : foreground }
+        Text { text: "${p.from} → ${p.to}"; weight: 1; style: small; color: muted }
+        Text { text: "${round((p.set - p.rise) / 60)} min"; width: 56; style: small; color: green; align: end }
+      }
     }
   }
 
@@ -426,10 +443,17 @@ widget "ISS Tracker" {
       }
       Text { text: "2-letter country (US, GB, DE…), then the code"; style: small; color: muted }
     } else {
-      Row {
-        Text { text: "over ${iss.place ?? zip}"; style: muted; weight: 1; maxLines: 1 }
-        Text { text: up ? "look up now!" : next == null ? "" : "in ${fmtDuration(next.rise - now)}"
-               width: 140; align: end; color: up ? green : accent; bold: true }
+      if tall {
+        Text { text: "over ${iss.place ?? zip}"; style: muted; maxLines: 1 }
+        if up || next != null {
+          Text { text: up ? "look up now!" : "in ${fmtDuration(next.rise - now)}"; color: up ? green : accent; bold: true }
+        }
+      } else {
+        Row {
+          Text { text: "over ${iss.place ?? zip}"; style: muted; weight: 1; maxLines: 1 }
+          Text { text: up ? "look up now!" : next == null ? "" : "in ${fmtDuration(next.rise - now)}"
+                 width: 140; align: end; color: up ? green : accent; bold: true }
+        }
       }
       if iss.error != null { Text { text: iss.error; style: small; color: red } }
       if iss.error == null && iss.passes != null && len(passes) == 0 {
