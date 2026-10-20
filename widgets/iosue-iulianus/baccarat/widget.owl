@@ -1,5 +1,5 @@
 widget "omacasino baccarat" {
-  meta { description: "Punto Banco baccarat on a felt table: Player, Banker, Tie and pair bets, classic, no-commission or EZ rules, the bead plate and big road, and a bankroll shared with omacasino blackjack"; version: "1.0"; license: "MIT"; category: "games"; owl: 7 }
+  meta { description: "Punto Banco baccarat on a felt table: Player, Banker, Tie and pair bets, classic, no-commission or EZ rules, the bead plate and big road, and a bankroll shared with omacasino blackjack"; version: "1.0.1"; license: "MIT"; category: "games"; owl: 7 }
   size: 6x4
   padding: 0
   minSize: 4x3
@@ -544,18 +544,21 @@ widget "omacasino baccarat" {
   // screen's "play" tab at the screen's, both from the same state.
   component Table(tw, th, inScreen = false) {
     // Layout, in dp inside a 10 dp margin, top to bottom: the header, the two hands side by
-    // side, the side-bet spots (on a wide table), the Player / Tie / Banker spots, and the
+    // side, the side-bet spots (unless the table is narrow), the Player / Tie / Banker spots, and the
     // controls on the rail.
     let W = tw - 20
     let H = th - 20
     let wide = W >= 300
+    // The side bets fit from ~250 dp (four EZ spots of ~60 dp each), so the landscape home
+    // screen's ~290 dp tile keeps them; the header's commission still needs a wide table.
+    let sides = W >= 250
     let railTop = H - 38
     let spotH = clamp(H * 0.17, 34, 64)
-    let sideH = wide ? clamp(H * 0.09, 22, 34) : 0
+    let sideH = sides ? clamp(H * 0.09, 22, 34) : 0
     let spotsY = railTop - 8 - spotH
     let sideY = spotsY - 5 - sideH
     let handsY = 26
-    let handsH = (wide ? sideY : spotsY) - 6 - handsY
+    let handsH = (sides ? sideY : spotsY) - 6 - handsY
     let halfW = (W - 10) / 2
     // On a tall table (the full screen) the cards stop growing before the space does, so the
     // hands sit a little above the middle of what's left.
@@ -572,7 +575,7 @@ widget "omacasino baccarat" {
       p8: [sw + 6, sideY, sw, sideH], d7: [2 * sw + 12, sideY, sw, sideH],
       bp: [variant == "ez" ? 3 * sw + 18 : sw + 6, sideY, sw, sideH]
     }
-    let shown = wide ? spots : ["p", "t", "b"]
+    let shown = sides ? spots : ["p", "t", "b"]
     let statusW = W - 16 - 52 - 12 - (commission > 0 && wide ? 98 : 0) - (inScreen ? 0 : 16)
     let status = shoeOver ? "new shoe next" : commPaid > 0 && len(road) == 0 ? "new shoe · comm ${commPaid} paid"
       : lastHand ? "last hand" : totalBet > 0 ? "bet ${totalBet}" : "place your bets"
