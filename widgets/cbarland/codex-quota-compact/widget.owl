@@ -2,7 +2,7 @@ widget "codex quota compact" {
   size: 2x2
   minSize: 2x2
   padding: 6
-  meta { description: "Compact Codex usage with reset times; only available quota limits are shown"; version: "1.0"; license: "MIT"; category: "dev" }
+  meta { description: "Compact Codex usage with reset times; only available quota limits are shown"; version: "1.1"; license: "MIT"; category: "dev" }
   requires { pacman: ["bash", "python"] }
 
   source now = clock every 30s
@@ -67,14 +67,18 @@ except Exception:
 PY
   """) every 5m json timeout 25s
 
+  // A short tile (the landscape home screen, ~104dp) has no room for the bar and reset line:
+  // each limit becomes one "5-HOUR  62%" row.
+  let short = tileHeight != null && tileHeight < 125
   let quotaError = u.error ?? (u != null && u.five == null && u.week == null ? "No quota available for this Codex account." : null)
 
   component Limit(label, data) {
     let remaining = data.pct == null ? null : clamp(100 - data.pct, 0, 100)
     let tint = remaining == null ? muted : remaining <= 10 ? red : remaining <= 30 ? yellow : accent
     Column {
-      padding: 6
+      padding: short ? 3 : 6
       gap: 3
+      justify: short ? "center" : "start"
       background: surface
       border: 1
       borderColor: border
@@ -83,11 +87,11 @@ PY
         align: center
         gap: 2
         Text { text: cols < 3 ? replace(label, " LIMIT", "") : label; fontSize: 9; bold: true; color: muted; weight: 1 }
-        Text { text: "${round(remaining)}%"; fontSize: cols < 3 ? 18 : 22; bold: true; color: tint; width: cols < 3 ? 44 : 58; align: end }
+        Text { text: "${round(remaining)}%"; fontSize: short ? 14 : cols < 3 ? 18 : 22; bold: true; color: tint; width: cols < 3 ? 44 : 58; align: end }
         if cols >= 3 { Text { text: "left"; fontSize: 9; color: muted; width: 20 } }
       }
-      Progress { value: remaining ?? 0; color: tint; track: background; fill: width; height: 5; animate value: spring() }
-      Text { text: data.pct == null ? "Not available" : data.reset == null ? "Reset time unavailable" : data.reset > now ? "Resets in ${fmtDuration(data.reset - now)}" : "Awaiting reset update"; fontSize: 10; color: muted; maxLines: 2 }
+      if !short { Progress { value: remaining ?? 0; color: tint; track: background; fill: width; height: 5; animate value: spring() } }
+      if !short { Text { text: data.pct == null ? "Not available" : data.reset == null ? "Reset time unavailable" : data.reset > now ? "Resets in ${fmtDuration(data.reset - now)}" : "Awaiting reset update"; fontSize: 10; color: muted; maxLines: 2 } }
     }
   }
 
