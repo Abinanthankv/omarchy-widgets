@@ -1,5 +1,5 @@
 widget "vacuum" {
-  meta { description: "Your Xiaomi robot vacuum over your own wi-fi: battery, state, start, stop, dock, modes, a drive pad, and its floor plan drawn on the phone with rooms you tap to clean. A Mi login fetches the map."; version: "1.0.1"; license: "MIT"; category: "home"; owl: 6 }
+  meta { description: "Your Xiaomi robot vacuum over your own wi-fi: battery, state, start, stop, dock, modes, a drive pad, and its floor plan drawn on the phone with rooms you tap to clean. A Mi login fetches the map."; version: "1.1.0"; license: "MIT"; category: "home"; owl: 6 }
   size: 6x4
   minSize: 2x2
 
@@ -2859,9 +2859,9 @@ echo no
           Button { text: "dock"; weight: 1; color: muted; onTap: run("python3 $HOME/.cache/omarchy-vacuum/vacuum.py action dock; sleep 2") }
         }
 
+        Spacer { weight: 1 }
         Row {
           gap: 8
-          weight: 1
           Consumable { name: "side"; value: v.consumables.side_brush }
           Consumable { name: "main"; value: v.consumables.main_brush }
           Consumable { name: "filter"; value: v.consumables.filter }
