@@ -1,5 +1,5 @@
 widget "folder" {
-  meta { owl: 9; description: "Folder of Android apps: custom title, reorder, 3-5 columns, border and corners. Optional duplicate/sync buttons write copies of this widget file into the widgets folder."; version: "1.1"; license: "MIT"; category: "productivity" }
+  meta { owl: 9; description: "Folder of Android apps: custom title, reorder, 3-5 columns, border and corners. Optional duplicate/sync buttons write copies of this widget file into the widgets folder."; version: "1.1.1"; license: "MIT"; category: "productivity" }
   size: 6x3
   minSize: 3x2
 
@@ -25,8 +25,10 @@ widget "folder" {
   // the picks still installed: the list buttons edit these, so an uninstalled app drops out
   let keys = items.map(a => a.key)
   let rad = corner == "edge" ? 0 : corner == "soft" ? 6 : 12
-  let cw = floor(((tileWidth ?? 320) - 24 - 8 * (colCount - 1)) / colCount)
-  let lines = range(ceil(len(items) / colCount)).map(r => items.drop(r * colCount).take(colCount))
+  // a narrow tile (the landscape home screen) gets fewer columns, so an icon and its name still fit
+  let nc = min(colCount, max(2, floor(((tileWidth ?? 320) - 24) / 76)))
+  let cw = floor(((tileWidth ?? 320) - 24 - 8 * (nc - 1)) / nc)
+  let lines = range(ceil(len(items) / nc)).map(r => items.drop(r * nc).take(nc))
   let avail = all.filter(a => !any(picks, k => k == a.key) && (q == "" || contains(lower(a.name), lower(q))))
 
   Column {
@@ -84,7 +86,7 @@ widget "folder" {
   }
 
   screen {
-    title: folderMain ? "folder · v1.1" : "folder · v1.1 (copy)"
+    title: folderMain ? "folder · v1.1.1" : "folder · v1.1.1 (copy)"
     Box {
     Column {
       scroll: true
