@@ -2,7 +2,7 @@ widget "google calendar" {
   size: 3x4
   minSize: 2x2
 
-  meta { owl: 6; description: "Upcoming events from one or more Google calendars (or any iCal link). Tap for the full agenda, quick add (\"dentist friday at 3pm\") and settings: calendars, colors, days ahead"; version: "1.3"; license: "MIT"; category: "productivity" }
+  meta { owl: 6; description: "Upcoming events from one or more Google calendars (or any iCal link). Tap for the full agenda, quick add (\"dentist friday at 3pm\") and settings: calendars, colors, days ahead"; version: "1.3.1"; license: "MIT"; category: "productivity" }
   requires { pacman: ["python", "python-icalendar", "python-recurring-ical-events"] }
 
   // Calendars are { name, url, color, on }, kept by the launcher, not in this file.
@@ -120,14 +120,15 @@ widget "google calendar" {
   // Events with a day heading before the first event of each day.
   let lines = flatten(range(len(upcoming)).map(i =>
     i == 0 || upcoming[i].d != upcoming[i - 1].d ? [{h: true, d: upcoming[i].d, label: dayLabels[indexOf(dayKeys, upcoming[i].d)]}, upcoming[i]] : [upcoming[i]]))
-  // As many lines as the tile has room for, without a day heading left at the bottom.
-  let tileLines = lines.take(max(2, (rows ?? 4) * 3))
+  // As many lines as the tile has room for, without a day heading left at the bottom: each line is
+  // 19dp (16 + the gap) under the date row and the tile's padding (about 42dp together).
+  let tileLines = lines.take(tileHeight == null ? max(2, (rows ?? 4) * 3) : max(2, floor((tileHeight - 42) / 19)))
   let tileFit = len(tileLines) > 0 && last(tileLines).h ? tileLines.take(len(tileLines) - 1) : tileLines
   let todayCount = count(upcoming, e => e.d == dayKeys[0])
   // Two columns wide there's no room for a time column, so each event gets its day and time
   // under the title instead (m1n1m0th42's small layout, from #52).
   let narrow = (cols ?? 3) < 3
-  let narrowFit = upcoming.take(max(2, (rows ?? 2) * 2 - 1))
+  let narrowFit = upcoming.take(tileHeight == null ? max(2, (rows ?? 2) * 2 - 1) : max(1, floor((tileHeight - 40) / 35)))
   let errCount = len(keys(data.errors ?? {}))
 
   // Quick add, from m1n1m0th42's calendar widget (store PR #52, MIT): turns "dentist friday at 3pm"
