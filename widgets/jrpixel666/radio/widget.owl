@@ -1,7 +1,7 @@
 widget "radio" {
   size: 6x2
   minSize: 3x1
-  meta { description: "World radio: pick a country, then one of its most popular stations, and it plays in the background with the current track"; version: "1.1"; license: "MIT"; category: "media"; owl: 8 }
+  meta { description: "World radio: pick a country, then one of its most popular stations, and it plays in the background with the current track"; version: "1.2"; license: "MIT"; category: "media"; owl: 8 }
 
   // mpg123 is the player because mpv and ffmpeg pull in bubblewrap, which can't run here.
   // It only plays MP3, so the station lists ask radio-browser for MP3 streams.
@@ -46,6 +46,11 @@ widget "radio" {
   let icy = last(lines(now ?? "")) ?? ""
   let track = contains(icy, "StreamTitle='") ? trim(split(split(icy, "StreamTitle='")[1], "';")[0]) : ""
   let flag = station != null ? station.cc : country
+  let stationCountry = station == null ? countryLabel : (countryList.find(c => c.code == station.cc).name ?? station.cc)
+  let status = station == null ? "tap to pick a station" : playing ? (track != "" ? track : "playing") : "stopped"
+  // A tile taller than wide (the landscape home screen) stacks the flag, the text and the button.
+  let tall = tileWidth != null && tileHeight != null && tileHeight > tileWidth * 1.3
+  let tallArt = tall ? clamp(min(tileWidth - 26, tileHeight * 0.32), 52, 140) : 0
 
   // Kills the previous player's process group, then plays $1 and keeps its ICY titles.
   let playScript = 'd=~/.cache/owl-radio; mkdir -p $d; [ -f $d/pid ] && kill -- -$(cat $d/pid) 2>/dev/null; echo $$ > $d/pid; : > $d/now; mpg123 -v -o pulse "$1" 2>&1 | stdbuf -oL tr "\r" "\n" | grep --line-buffered -a "^ICY-META" > $d/now; [ "$(cat $d/pid 2>/dev/null)" = $$ ] && rm -f $d/pid'
@@ -87,8 +92,37 @@ widget "radio" {
     }
   }
 
+  if tall {
+    Column {
+      gap: 8
+      fill: true
+      Row {
+        Spacer { weight: 1 }
+        Box { size: tallArt; background: surface; radius: 8 * corners; align: center
+          Flag { code: flag; w: tallArt * 0.65 }
+        }
+        Spacer { weight: 1 }
+      }
+      Column {
+        gap: 2
+        Text { text: station == null ? "radio" : station.name; style: title; maxLines: 2 }
+        Text { text: status; style: small; color: playing ? foreground : muted; maxLines: 3 }
+        Row { gap: 6; align: center
+          if playing { Equalizer { } }
+          Text { text: stationCountry; style: label; color: muted; maxLines: 1; weight: 1 }
+        }
+      }
+      Spacer { weight: 1 }
+      if station != null {
+        Row { align: center
+          Spacer { weight: 1 }
+          PlayButton { on: playing; big: true }
+          Spacer { weight: 1 }
+        }
+      }
+    }
   // One row high: flag, name and track on two lines, play button.
-  if (rows ?? 2) < 2 {
+  } else if (rows ?? 2) < 2 {
     Row {
       align: center
       gap: 10
