@@ -1,7 +1,5 @@
 // Breakout by rcrohmana, 2026. MIT License.
 widget "breakout" {
-  page: 2
-  order: 4
   size: 6x6
   minSize: 4x5
   padding: 8
