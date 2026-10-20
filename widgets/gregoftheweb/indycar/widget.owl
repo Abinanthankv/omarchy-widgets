@@ -1,5 +1,5 @@
 widget "Indycar" {
-  meta { owl: 5; description: "IndyCar calendar: next race countdown, podiums, driver standings and a street, road, oval and speedway breakdown"; version: "1.0"; license: "MIT"; category: "sport" }
+  meta { owl: 5; description: "IndyCar calendar: next race countdown, podiums, driver standings and a street, road, oval and speedway breakdown"; version: "1.1"; license: "MIT"; category: "sport" }
 
   requires { pacman: ["curl", "jq"] }
 
@@ -68,63 +68,130 @@ widget "Indycar" {
   let kinds = ["street", "road", "oval", "speedway"]
   let kindColor = {street: "#7aa2f7", road: "#9ece6a", oval: "#ff9e64", speedway: "#f7768e"}
   state view = "races"
+  // A short, wide tile (the landscape home screen) puts the standings or next race beside
+  // the last race and the round progress instead of stacking them all.
+  let short = tileWidth != null && tileHeight != null && tileHeight < 220 && tileWidth > tileHeight * 1.3
 
   onTap: screen()
 
-  Column {
-    gap: 6
-    Row {
-      align: center
-      Text { text: "indycar ${ic.season ?? ""}"; style: muted; width: 110 }
-      Spacer { weight: 1 }
-      Text { text: done ? "🏁" : flags[next.country] ?? "🏎️"; fontSize: 22; width: 30; align: end }
-    }
-
-    if total == 0 {
-      Text { text: "…"; style: title }
-    } else if done {
-      Text { text: "season over"; style: title }
-      for d in drivers.take(3) key d.id {
-        Row {
-          align: center
-          gap: 8
-          Text { text: medals[d.pos - 1] ?? "${d.pos}"; fontSize: 14; width: 24 }
-          Text { text: d.name; style: body; bold: d.pos == 1; color: d.pos == 1 ? accent : foreground; weight: 1; maxLines: 1 }
-          Text { text: "${d.pts}"; style: small; color: muted; width: 48; align: end }
-        }
-      }
-    } else {
-      Text { text: "R${next.round} · ${next.gp}"; style: title; maxLines: 2 }
-      Text { text: fmtTime(next.ts, "EEE d MMM · HH:mm"); style: body }
-      Text { text: next.ts > now ? "in ${fmtDuration(next.ts - now)}" : "racing now"; style: title; color: accent }
-      if tracks[next.gp] != null {
-        Text { text: tracks[next.gp].type; style: label; color: background; background: kindColor[tracks[next.gp].type]; radius: 4; padding: [6, 2]; width: 80; align: center }
-      }
-    }
-
-    if lastRace != null {
+  if short {
+    Column {
+      gap: 6
       Row {
-        gap: 6
-        Text { text: flags[lastRace.country] ?? "🏁"; fontSize: 14; width: 24 }
-        Column {
-          gap: 0
+        align: center
+        Text { text: "indycar ${ic.season ?? ""}"; style: muted; weight: 1; maxLines: 1 }
+        Text { text: done ? "season over" : ""; style: label; color: muted; width: 90; align: end; maxLines: 1 }
+        Text { text: done ? "🏁" : flags[next.country] ?? "🏎️"; fontSize: 18; width: 28; align: end }
+      }
+      if total == 0 {
+        Text { text: "…"; style: title }
+      } else {
+        Row {
+          gap: 12
           weight: 1
-          Text { text: lastRace.gp; style: label; color: muted }
-          Row {
-            gap: 6
-            for t in lastRace.top key t.p {
-              Text { text: t.code; style: small; color: t.p == 1 ? foreground : muted; weight: 1; maxLines: 1 }
+          Column {
+            weight: 1
+            gap: 4
+            if done {
+              for d in drivers.take(3) key d.id {
+                Row {
+                  align: center
+                  gap: 6
+                  Text { text: medals[d.pos - 1] ?? "${d.pos}"; fontSize: 14; width: 22 }
+                  Text { text: d.name; style: body; bold: d.pos == 1; color: d.pos == 1 ? accent : foreground; weight: 1; maxLines: 1 }
+                  Text { text: "${d.pts}"; style: small; color: muted; width: 36; align: end }
+                }
+              }
+            } else {
+              Text { text: "R${next.round} · ${next.gp}"; style: body; bold: true; maxLines: 1 }
+              Text { text: fmtTime(next.ts, "EEE d MMM · HH:mm"); style: small; color: muted; maxLines: 1 }
+              Text { text: next.ts > now ? "in ${fmtDuration(next.ts - now)}" : "racing now"; style: title; color: accent; maxLines: 1 }
+              if tracks[next.gp] != null {
+                Text { text: tracks[next.gp].type; style: label; color: background; background: kindColor[tracks[next.gp].type]; radius: 4; padding: [6, 2]; width: 80; align: center }
+              }
+            }
+          }
+          Column {
+            width: 104
+            gap: 0
+            if lastRace != null {
+              Row {
+                align: center
+                gap: 4
+                Text { text: flags[lastRace.country] ?? "🏁"; fontSize: 12; width: 20 }
+                Text { text: lastRace.gp; style: label; color: muted; weight: 1; maxLines: 1 }
+              }
+              for t in lastRace.top key t.p {
+                Text { text: t.code; style: small; color: t.p == 1 ? foreground : muted; maxLines: 1 }
+              }
+            }
+            Spacer { weight: 1 }
+            Row {
+              align: center
+              gap: 6
+              Progress { value: nextRound; max: total; color: accent; weight: 1; height: 6 }
+              Text { text: "${nextRound}/${total}"; style: label; color: muted; width: 40; align: end }
             }
           }
         }
       }
     }
+  } else {
+    Column {
+      gap: 6
+      Row {
+        align: center
+        Text { text: "indycar ${ic.season ?? ""}"; style: muted; width: 110 }
+        Spacer { weight: 1 }
+        Text { text: done ? "🏁" : flags[next.country] ?? "🏎️"; fontSize: 22; width: 30; align: end }
+      }
 
-    Row {
-      align: center
-      gap: 8
-      Progress { value: nextRound; max: total; color: accent; weight: 1; height: 6 }
-      Text { text: "${nextRound}/${total}"; style: label; color: muted; width: 40; align: end }
+      if total == 0 {
+        Text { text: "…"; style: title }
+      } else if done {
+        Text { text: "season over"; style: title }
+        for d in drivers.take(3) key d.id {
+          Row {
+            align: center
+            gap: 8
+            Text { text: medals[d.pos - 1] ?? "${d.pos}"; fontSize: 14; width: 24 }
+            Text { text: d.name; style: body; bold: d.pos == 1; color: d.pos == 1 ? accent : foreground; weight: 1; maxLines: 1 }
+            Text { text: "${d.pts}"; style: small; color: muted; width: 48; align: end }
+          }
+        }
+      } else {
+        Text { text: "R${next.round} · ${next.gp}"; style: title; maxLines: 2 }
+        Text { text: fmtTime(next.ts, "EEE d MMM · HH:mm"); style: body }
+        Text { text: next.ts > now ? "in ${fmtDuration(next.ts - now)}" : "racing now"; style: title; color: accent }
+        if tracks[next.gp] != null {
+          Text { text: tracks[next.gp].type; style: label; color: background; background: kindColor[tracks[next.gp].type]; radius: 4; padding: [6, 2]; width: 80; align: center }
+        }
+      }
+
+      if lastRace != null {
+        Row {
+          gap: 6
+          Text { text: flags[lastRace.country] ?? "🏁"; fontSize: 14; width: 24 }
+          Column {
+            gap: 0
+            weight: 1
+            Text { text: lastRace.gp; style: label; color: muted }
+            Row {
+              gap: 6
+              for t in lastRace.top key t.p {
+                Text { text: t.code; style: small; color: t.p == 1 ? foreground : muted; weight: 1; maxLines: 1 }
+              }
+            }
+          }
+        }
+      }
+
+      Row {
+        align: center
+        gap: 8
+        Progress { value: nextRound; max: total; color: accent; weight: 1; height: 6 }
+        Text { text: "${nextRound}/${total}"; style: label; color: muted; width: 40; align: end }
+      }
     }
   }
 
