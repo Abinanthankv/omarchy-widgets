@@ -2,7 +2,7 @@ widget "currency" {
   meta {
     owl: 8
     description: "Kurs mata uang & perbandingan forex global dengan grafik live transparan"
-    version: "4.4"
+    version: "4.5"
     license: "MIT"
     category: "finance"
   }
@@ -368,183 +368,218 @@ curl -sf "https://api.frankfurter.dev/v1/currencies" | jq -c 'to_entries | map({
     screen()
   }
 
+  // A tile taller than wide (the landscape home screen) stacks the pair info above the chart
+  let tall = tileWidth != null && tileHeight != null && tileHeight > tileWidth * 1.3
+
+  component TileHeader() {
+    Column {
+      gap: 2
+
+      Text {
+        text: tileTitle
+        fontSize: 20
+        bold: true
+        color: foreground
+      }
+
+      Text {
+        text: fullPinnedName
+        fontSize: 10
+        style: muted
+        maxLines: 1
+      }
+
+      Text {
+        text: tilePriceStr
+        fontSize: 22
+        bold: true
+        color: foreground
+      }
+
+      Row {
+        Box {
+          padding: [6, 2]
+          radius: 4 * corners
+          background: alpha(tileColor, 0.15)
+          border: 1
+          borderColor: alpha(tileColor, 0.35)
+          Text {
+            text: tileChgStr
+            fontSize: 10
+            bold: true
+            color: tileColor
+          }
+        }
+      }
+    }
+  }
+
+  component TileStats() {
+    // Mini Stats row
+    Row {
+      gap: 6
+      fill: width
+      StatItem { label: "1W"; val: "${tileWeekly >= 0 ? '+' : ''}${fixed(tileWeekly, 2)}%"; c: tileWeekly >= 0 ? green : red }
+      StatItem { label: "1M"; val: "${tileMonthly >= 0 ? '+' : ''}${fixed(tileMonthly, 2)}%"; c: tileMonthly >= 0 ? green : red }
+      StatItem { label: "YTD"; val: "${tileYtd >= 0 ? '+' : ''}${fixed(tileYtd, 2)}%"; c: tileYtd >= 0 ? green : red }
+    }
+  }
+
+  component TileChart() {
+    // Right Section: Custom Theme Transparent Chart (NO PHOTO / NO IMAGE)
+    Box {
+      weight: tall ? 1 : 1.25
+      fill: true
+      padding: [6, 6]
+      radius: 8 * corners
+      background: alpha(surface, 0.45)
+      border: 1
+      borderColor: alpha(border, 0.35)
+      clip: true
+
+      Column {
+        fill: true
+        justify: spaceBetween
+
+        // Top Header: High Price + Fixed-width Span Pill
+        Row {
+          fill: width
+          align: center
+          Text {
+            text: tileMaxStr
+            fontSize: 9
+            color: muted
+            weight: 1
+          }
+          Box {
+            width: 26
+            height: 15
+            align: center
+            radius: 3 * corners
+            background: alpha(accent, 0.2)
+            Text {
+              text: upper(timeSpan)
+              fontSize: 9
+              bold: true
+              align: center
+              color: accent
+            }
+          }
+        }
+
+        // Custom Native Sparkline Chart (Theme Colors, Transparent Area Fill)
+        if count(tilePts) > 1 {
+          Sparkline {
+            values: tilePts
+            min: tileMin
+            max: tileMax
+            color: tileColor
+            area: alpha(tileColor, 0.2)
+            thickness: 2.2
+            weight: 1
+            fill: width
+          }
+        } else {
+          Box {
+            weight: 1
+            fill: width
+            align: center
+            Text { text: "memuat grafik…"; fontSize: 10; color: muted }
+          }
+        }
+
+        // Bottom Header: Low Price + Fixed-width Direction
+        Row {
+          fill: width
+          align: center
+          Text {
+            text: tileMinStr
+            fontSize: 9
+            color: muted
+            weight: 1
+          }
+          Text {
+            text: upper(tileDir)
+            fontSize: 9
+            bold: true
+            color: tileColor
+            width: 55
+            align: end
+          }
+        }
+      }
+    }
+  }
+
   // Main Tile Layout (Wide 6 columns)
   Column {
     gap: 8
     fill: true
 
-    // Top Section: Info (Left) + Custom Theme Transparent Chart (Right)
-    Row {
-      gap: 10
-      fill: width
-      weight: 1
-
-      // Left Column: Currency Pair Header, Price, Change Badge, Mini Stats
+    if tall {
+      TileHeader {}
+      if tilePrice > 0 { TileStats {} }
+      TileChart {}
       Column {
-        weight: 1
-        fill: height
-        justify: spaceBetween
-
-        Column {
-          gap: 2
-
-          Text {
-            text: tileTitle
-            fontSize: 20
-            bold: true
-            color: foreground
-          }
-
-          Text {
-            text: fullPinnedName
-            fontSize: 10
-            style: muted
-            maxLines: 1
-          }
-
-          Text {
-            text: tilePriceStr
-            fontSize: 22
-            bold: true
-            color: foreground
-          }
-
-          Row {
-            Box {
-              padding: [6, 2]
-              radius: 4 * corners
-              background: alpha(tileColor, 0.15)
-              border: 1
-              borderColor: alpha(tileColor, 0.35)
-              Text {
-                text: tileChgStr
-                fontSize: 10
-                bold: true
-                color: tileColor
-              }
-            }
-          }
+        fill: width
+        gap: 2
+        Text {
+          text: "TERPASANG: ${pinnedBase}/${pinnedQuote} • Live Pasar"
+          fontSize: 9.5
+          bold: true
+          color: muted
+          maxLines: 1
         }
-
-        // Mini Stats row
-        if tilePrice > 0 {
-          Row {
-            gap: 6
-            fill: width
-            StatItem { label: "1W"; val: "${tileWeekly >= 0 ? '+' : ''}${fixed(tileWeekly, 2)}%"; c: tileWeekly >= 0 ? green : red }
-            StatItem { label: "1M"; val: "${tileMonthly >= 0 ? '+' : ''}${fixed(tileMonthly, 2)}%"; c: tileMonthly >= 0 ? green : red }
-            StatItem { label: "YTD"; val: "${tileYtd >= 0 ? '+' : ''}${fixed(tileYtd, 2)}%"; c: tileYtd >= 0 ? green : red }
-          }
+        Text {
+          text: "Ketuk untuk 167+ kurs ↗"
+          fontSize: 9.5
+          bold: true
+          color: accent
+          maxLines: 1
         }
       }
+    } else {
+      // Top Section: Info (Left) + Custom Theme Transparent Chart (Right)
+      Row {
+        gap: 10
+        fill: width
+        weight: 1
 
-      // Right Section: Custom Theme Transparent Chart (NO PHOTO / NO IMAGE)
-      Box {
-        weight: 1.25
-        fill: height
-        padding: [6, 6]
-        radius: 8 * corners
-        background: alpha(surface, 0.45)
-        border: 1
-        borderColor: alpha(border, 0.35)
-        clip: true
-
+        // Left Column: Currency Pair Header, Price, Change Badge, Mini Stats
         Column {
-          fill: true
+          weight: 1
+          fill: height
           justify: spaceBetween
-
-          // Top Header: High Price + Fixed-width Span Pill
-          Row {
-            fill: width
-            align: center
-            Text {
-              text: tileMaxStr
-              fontSize: 9
-              color: muted
-              weight: 1
-            }
-            Box {
-              width: 26
-              height: 15
-              align: center
-              radius: 3 * corners
-              background: alpha(accent, 0.2)
-              Text {
-                text: upper(timeSpan)
-                fontSize: 9
-                bold: true
-                align: center
-                color: accent
-              }
-            }
-          }
-
-          // Custom Native Sparkline Chart (Theme Colors, Transparent Area Fill)
-          if count(tilePts) > 1 {
-            Sparkline {
-              values: tilePts
-              min: tileMin
-              max: tileMax
-              color: tileColor
-              area: alpha(tileColor, 0.2)
-              thickness: 2.2
-              weight: 1
-              fill: width
-            }
-          } else {
-            Box {
-              weight: 1
-              fill: width
-              align: center
-              Text { text: "memuat grafik…"; fontSize: 10; color: muted }
-            }
-          }
-
-          // Bottom Header: Low Price + Fixed-width Direction
-          Row {
-            fill: width
-            align: center
-            Text {
-              text: tileMinStr
-              fontSize: 9
-              color: muted
-              weight: 1
-            }
-            Text {
-              text: upper(tileDir)
-              fontSize: 9
-              bold: true
-              color: tileColor
-              width: 55
-              align: end
-            }
-          }
+          TileHeader {}
+          if tilePrice > 0 { TileStats {} }
         }
-      }
-    }
 
-    // Bottom Section: Pinned Status & Launcher Touch Hint (No accidental taps!)
-    Row {
-      fill: width
-      align: center
-
-      Text {
-        text: "TERPASANG: ${pinnedBase}/${pinnedQuote} • Live Pasar"
-        fontSize: 9.5
-        bold: true
-        color: muted
-        weight: 1
-        maxLines: 1
+        TileChart {}
       }
 
-      Text {
-        text: "Ketuk untuk 167+ kurs ↗"
-        fontSize: 9.5
-        bold: true
-        color: accent
-        width: 150
-        align: end
-        maxLines: 1
+      // Bottom Section: Pinned Status & Launcher Touch Hint (No accidental taps!)
+      Row {
+        fill: width
+        align: center
+
+        Text {
+          text: "TERPASANG: ${pinnedBase}/${pinnedQuote} • Live Pasar"
+          fontSize: 9.5
+          bold: true
+          color: muted
+          weight: 1
+          maxLines: 1
+        }
+
+        Text {
+          text: "Ketuk untuk 167+ kurs ↗"
+          fontSize: 9.5
+          bold: true
+          color: accent
+          width: 150
+          align: end
+          maxLines: 1
+        }
       }
     }
   }
