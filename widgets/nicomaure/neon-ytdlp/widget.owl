@@ -5,7 +5,7 @@ widget "neon ytdlp" {
   meta {
     owl: 8
     description: "Neon downloader for YouTube, YT Music & Drive: format selector, video+audio merge with FFmpeg, MP3 audio & auto yt-dlp updater."
-    version: "1.6"
+    version: "1.6.1"
     license: "MIT"
     category: "media"
   }
@@ -897,6 +897,8 @@ fi""") every 1m json timeout 15s
   let formats = isCleared ? [] : rawFormats
   let visibleFormats = fmtFilter == "all" ? formats : formats.filter(f => f.cat == fmtFilter)
   let compact = (cols ?? 6) < 4
+  // A narrow tile taller than wide (the landscape home screen) stacks the chips and buttons
+  let tall = tileWidth != null && tileHeight != null && tileHeight > tileWidth * 1.3
 
   let stepMsg = rawStep == "" ? ""
     : rawStep == "READY_OK" ? (isEs ? "Software listo: yt-dlp + FFmpeg activos" : "Software ready: yt-dlp + FFmpeg active")
@@ -946,6 +948,19 @@ fi""") every 1m json timeout 15s
     }
   }
 
+  component QuickDl(label, tint, fmt, kind, dlId) {
+    Box {
+      weight: 1; padding: [6, 5]; radius: 6 * corners
+      background: alpha(tint, 0.16); border: 1; borderColor: tint; align: center
+      onTap: {
+        haptic()
+        activeDl = isDownloading ? activeDl : dlId
+        run(isDownloading ? "true" : "bash ~/.cache/omalauncher-neondl/ctl.sh download ${sh(activeUrl)} ${sh(fmt)} ${kind} ${dlId}")
+      }
+      Text { text: label; fontSize: 10; bold: true; color: tint; align: center; maxLines: 1; fill: width }
+    }
+  }
+
   background: darkBg
   padding: [10, 8]
   onTap: screen()
@@ -958,7 +973,7 @@ fi""") every 1m json timeout 15s
       align: center
       gap: 6
       Text {
-        text: "⚡ NEON YT-DLP"
+        text: compact ? "⚡ NEON" : "⚡ NEON YT-DLP"
         fontSize: 15
         bold: true
         color: neonBlue
@@ -1022,6 +1037,10 @@ fi""") every 1m json timeout 15s
         NeonChip { label: hasFfmpeg ? "✓ FFmpeg V+A" : "○ FFmpeg"; ok: hasFfmpeg; tint: neonBlue }
         NeonChip { label: len(formats) > 0 ? (isEs ? "${len(formats)} Formatos" : "${len(formats)} Formats") : "MP4 · MP3"; ok: true; tint: neonRed }
       }
+    } else if tall {
+      Row { NeonChip { label: hasYtdlp ? "✓ yt-dlp ${ytdlpVer}" : "○ yt-dlp"; ok: hasYtdlp; tint: neonGreen } }
+      Row { NeonChip { label: hasFfmpeg ? "✓ FFmpeg V+A" : "○ FFmpeg"; ok: hasFfmpeg; tint: neonBlue } }
+      Row { NeonChip { label: len(formats) > 0 ? (isEs ? "${len(formats)} Formatos" : "${len(formats)} Formats") : "MP4 · MP3"; ok: true; tint: neonRed } }
     }
 
     Spacer { weight: 1 }
@@ -1062,28 +1081,15 @@ fi""") every 1m json timeout 15s
           Text { text: isEs ? "🔍 Formatos" : "🔍 Formats"; fontSize: 10; bold: true; color: neonBlue; align: center; maxLines: 1; fill: width }
         }
         if !compact {
-          Box {
-            weight: 1; padding: [6, 5]; radius: 6 * corners
-            background: alpha(neonGreen, 0.16); border: 1; borderColor: neonGreen; align: center
-            onTap: {
-              haptic()
-              activeDl = isDownloading ? activeDl : "quick-best"
-              run(isDownloading ? "true" : "bash ~/.cache/omalauncher-neondl/ctl.sh download ${sh(activeUrl)} ${sh('bv*+ba/b')} video quick-best")
-            }
-            Text { text: "🎬 Video+Audio"; fontSize: 10; bold: true; color: neonGreen; align: center; maxLines: 1; fill: width }
-          }
-          Box {
-            weight: 1; padding: [6, 5]; radius: 6 * corners
-            background: alpha(neonRed, 0.16); border: 1; borderColor: neonRed; align: center
-            onTap: {
-              haptic()
-              activeDl = isDownloading ? activeDl : "quick-mp3"
-              run(isDownloading ? "true" : "bash ~/.cache/omalauncher-neondl/ctl.sh download ${sh(activeUrl)} ${sh('ba/b')} mp3 quick-mp3")
-            }
-            Text { text: "🎵 YT Music MP3"; fontSize: 10; bold: true; color: neonRed; align: center; maxLines: 1; fill: width }
-          }
+          QuickDl { label: "🎬 Video+Audio"; tint: neonGreen; fmt: "bv*+ba/b"; kind: "video"; dlId: "quick-best" }
+          QuickDl { label: "🎵 YT Music MP3"; tint: neonRed; fmt: "ba/b"; kind: "mp3"; dlId: "quick-mp3" }
         }
       }
+    }
+
+    if compact && tall && isInstalled && !isDownloading {
+      Row { QuickDl { label: "🎬 Video+Audio"; tint: neonGreen; fmt: "bv*+ba/b"; kind: "video"; dlId: "quick-best" } }
+      Row { QuickDl { label: "🎵 YT Music MP3"; tint: neonRed; fmt: "ba/b"; kind: "mp3"; dlId: "quick-mp3" } }
     }
 
     Row {
