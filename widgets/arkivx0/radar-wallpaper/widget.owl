@@ -1,5 +1,5 @@
 widget "radar wallpaper" {
-  meta { description: "Live National Weather Service radar on a night map, centered on this phone."; version: "1.10"; license: "MIT"; category: "world"; owl: 6 }
+  meta { description: "Live National Weather Service radar on a night map, centered on this phone."; version: "1.11"; license: "MIT"; category: "world"; owl: 6 }
   page: 1
   order: 30
   size: 3x2
@@ -838,6 +838,13 @@ leave() {
       ;;
   esac
   rm -f "$owned"
+  # Off or another background picked: take the frames out of Style's picker. A
+  # quiet exit keeps them, so the next visit starts at once.
+  case $why in
+    off|style)
+      rm -f "$bg_root"/*/nws-conus-*.jpg "$cache/stamp"
+      ;;
+  esac
   case $why in
     style) write_status off style ;;
     off) write_status off "" ;;
@@ -1040,6 +1047,11 @@ daemon_main() {
   count=0
   show_frame=0
   next_fetch=0
+  # A daemon starts on every return to the home screen: it waits out the refresh
+  # from the last fetch instead of fetching straight away.
+  if [ -f "$gif" ] && [ -f "$cache/fetched" ]; then
+    next_fetch=$(( $(stat -c%Y "$cache/fetched") + refresh * 60 ))
+  fi
   fail_until=0
   if ! tile_here; then
     leave quiet
@@ -1106,6 +1118,7 @@ daemon_main() {
         fi
         if download; then
           printf '%s\n' "$(sector_name)" >"$cache/sector"
+          touch "$cache/fetched"
           next_fetch=$((now + refresh * 60))
         else
           next_fetch=$((now + 45))
