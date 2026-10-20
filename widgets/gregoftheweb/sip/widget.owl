@@ -6,7 +6,7 @@ widget "sip" {
   meta {
     owl: 7
     description: "A 16-bit lady lounging under a beach umbrella. Tap: she sips her champagne. Tap again: she peeks over her shades and winks."
-    version: "1.0"
+    version: "1.0.1"
     license: "MIT"
     category: "fun"
   }
@@ -471,14 +471,14 @@ widget "sip" {
     Canvas {
       fill: true
       let p = max(width / 80, height / 64)
-      let ox = clamp(width / 2 - 37 * p, width - 80 * p, 0)
+      let ox = clamp(width / 2 - 30 * p, width - 80 * p, 0)   // narrow tiles keep her glass in view
       let oy = max(height - 64 * p, -3 * p)   // wide tiles lose a little hat crown and more of the bottom
       sprite(scene1.rows, ox + scene1.x * p, oy + scene1.y * p, p, palette: pal)
     }
     Canvas {
       fill: true
       let p = max(width / 80, height / 64)
-      let ox = clamp(width / 2 - 37 * p, width - 80 * p, 0)
+      let ox = clamp(width / 2 - 30 * p, width - 80 * p, 0)   // narrow tiles keep her glass in view
       let oy = max(height - 64 * p, -3 * p)   // wide tiles lose a little hat crown and more of the bottom
       sprite(scene2.rows, ox + scene2.x * p, oy + scene2.y * p, p, palette: pal)
     }
@@ -486,7 +486,7 @@ widget "sip" {
     Canvas {
       fill: true
       let p = max(width / 80, height / 64)
-      let ox = clamp(width / 2 - 37 * p, width - 80 * p, 0)
+      let ox = clamp(width / 2 - 30 * p, width - 80 * p, 0)   // narrow tiles keep her glass in view
       let oy = max(height - 64 * p, -3 * p)   // wide tiles lose a little hat crown and more of the bottom
       // seconds into the current act; the wall clock is checked first, so `time`
       // is only read while a tap is fresh (and an old t0 from before the frame
