@@ -3,7 +3,7 @@
 A quiet EPUB, MOBI and TXT reader with a local library, saved reading progress,
 adjustable typography, paper/sepia/night themes and public OPDS 1/2 catalogs.
 
-Version 1.9 replaces the settings symbol with an outlined eight-tooth gear.
+Version 2.0 is an app, opened from the app drawer, instead of a home-screen face.
 
 Tap the page's right half to advance, its left half to go back. The gear opens
 Settings; the book button opens Library. The library scans files directly in
@@ -14,7 +14,7 @@ catalogs can be added. Authentication and DRM are not supported.
 
 ## Self-contained installation and review warning
 
-`face.owl` includes the Python reader and its separate KindleUnpack process as
+`app.owl` includes the Python reader and its separate KindleUnpack process as
 an **offline source bundle**: base64-encoded, XZ-compressed JSON mapping relative
 filenames to complete UTF-8 source/notice text. It includes no bytecode, private
 settings, books, tokens, or downloaded executable code. Encoding is packaging,
@@ -22,7 +22,7 @@ not encryption; the full source can be recovered using the instructions below.
 
 The `python -c` startup command deliberately triggers the review warning about
 running a widget value as code. Both the bootstrap and source bundle are fixed
-literals in this reviewed face, not server responses or user inputs. This is
+literals in this reviewed app, not server responses or user inputs. This is
 necessary because store folders cannot contain companion Python files. No
 network access is used to install the helper code, and no root access is needed.
 
@@ -31,8 +31,8 @@ relative paths, installs atomically under
 `~/.local/share/owl-reader-store/<source-sha256>/`, and verifies installed sources
 before initialization. Reader state and caches live separately under
 `~/.local/state/owl-reader-store/` and `~/.cache/owl-reader-store/`. These locations
-are separate from a manually installed Reader, so installing this face does not
-overwrite its helpers, settings, or reading progress. Removing the face does not
+are separate from a manually installed Reader, so installing this app does not
+overwrite its helpers, settings, or reading progress. Removing the app does not
 delete books; generated source/state/cache directories can be removed manually.
 
 Every external runtime package is declared in `requires`; the compressed bundle
@@ -58,7 +58,7 @@ normal approval flow. Fonts come from `ttf-dejavu`.
 
 ## Licenses and provenance
 
-The face, bootstrap and Reader helpers are **MIT**. Their MIT notice is included
+The app, bootstrap and Reader helpers are **MIT**. Their MIT notice is included
 in the bundle as `LICENSE-reader.txt`.
 
 The separately invoked **KindleUnpack** program is **GPL-3.0-only**, not MIT.
@@ -85,9 +85,9 @@ the verified source mapping; it does **not** run the bootstrap or bundled code.
 python - <<'PY'
 import base64, hashlib, json, lzma, re
 from pathlib import Path
-face = Path('face.owl').read_text()
+app = Path('app.owl').read_text()
 def literal(name):
-    line = next(line for line in face.splitlines()
+    line = next(line for line in app.splitlines()
                 if line.startswith('  let ' + name + ' = '))
     return json.loads(line.split(' = ', 1)[1])
 bootstrap = literal('readerBootstrap')
@@ -106,8 +106,8 @@ PY
 
 The packaged sources pass the existing 31 Reader tests, including MOBI fixtures.
 Fresh installation and repeat initialization were tested with an isolated HOME.
-The face is checked with `owl-check` and the store's
-`java -jar tools/owl.jar review . faces/placq/reader/face.owl`.
+The app is checked with `owl-check` and the store's
+`java -jar tools/owl.jar review . apps/placq/reader/app.owl`.
 
 The preview uses a fresh, empty Reader state, with no personal library data.
 Reader uses its own fixed reading palettes, not Omarchy theme colors.
