@@ -1,7 +1,7 @@
 widget "yandex weather" {
   size: 3x3
   minSize: 3x2
-  meta { description: "The date and the weather from Yandex Weather, where you are or in a city you pick. Tap it for 24 hours, 10 days, wind, UV, sun and moon"; version: "1.0"; license: "MIT"; category: "world"; owl: 6 }
+  meta { description: "The date and the weather from Yandex Weather, where you are or in a city you pick. Tap it for 24 hours, 10 days, wind, UV, sun and moon"; version: "1.0.1"; license: "MIT"; category: "world"; owl: 6 }
   requires { pacman: ["python"] }
 
   source now = clock every 1m
@@ -96,7 +96,10 @@ def weather(lat=None, lon=None):
     data = flight(page)
 
     m = re.search(r'"fact":(\{[^{}]*\})', data)
-    f = json.loads(m.group(1)) if m else {}
+    # No fact means a captcha or a new page, not weather: fail so the tile says offline.
+    if not m:
+        sys.exit("no weather on the yandex page")
+    f = json.loads(m.group(1))
     m = re.search(r'"point":\{"lon":([-\d.]+),"lat":([-\d.]+)\}', data)
     point = {"lat": float(m.group(2)), "lon": float(m.group(1))} if m else {"lat": lat, "lon": lon}
     m = re.search(r"<title>Weather in (.*?) —", page)
@@ -149,6 +152,10 @@ def weather(lat=None, lon=None):
             m = re.search(r'grid-area:' + name + r'"[^>]*>(.*?)</div>', card, re.S)
             return text(m.group(1)) if m else None
 
+        def wind(card, p):
+            m = re.search(r'grid-area:' + p + r'-dir".*?</span><div class="AppForecastDayPart_direction[^>]*>([^<]*)<', card, re.S)
+            return text(m.group(1)) if m else None
+
         parts = []
         for p, label in (("m", "morning"), ("d", "day"), ("e", "evening"), ("n", "night")):
             cond_p = area(p + "-text")
@@ -159,7 +166,7 @@ def weather(lat=None, lon=None):
                 "cond": cond_p,
                 "code": code(cond_p),
                 "wind": num(area(p + "-wind")),
-                "dir": text(re.search(r'grid-area:' + p + r'-dir".*?</span><div class="AppForecastDayPart_direction[^>]*>([^<]*)<', card, re.S).group(1)) if re.search(r'grid-area:' + p + r'-dir', card) else None,
+                "dir": wind(card, p),
                 "humidity": deg(area(p + "-hum")),
                 "pressure": deg(area(p + "-press")),
             })
