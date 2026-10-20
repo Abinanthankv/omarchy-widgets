@@ -7,7 +7,7 @@ widget "tweaks" {
   // Every knob the launcher has, in one place: style.toml's settings (read from defaults.toml, so new ones show up
   // on their own, each with its description), themes and backgrounds, the files in this folder, style backups and
   // what's under the hood.
-  meta { owl: 10; description: "A tweak tool for omalauncher on a tile: themes, backgrounds, gaps, borders, corners, bars, gestures, widgets and backups"; version: "1.0"; license: "MIT"; category: "system" }
+  meta { owl: 10; description: "A tweak tool for omalauncher on a tile: themes, backgrounds, gaps, borders, corners, bars, gestures, widgets and backups"; version: "1.0.1"; license: "MIT"; category: "system" }
   requires { pacman: ["python", "fontconfig"] }
 
   // The backend writes itself to ~/.cache on first run (and when this file changes), as a script the reviewer can read
@@ -563,6 +563,9 @@ echo ok
   let barOn = get(over, "status-bar.shown", find(settings, s => s.path == "status-bar.shown").value) ?? true
   let nextCorner = corner >= 1 ? 0 : corner + 0.5
   let nextGap = gap >= 12 ? 0 : gap + 4
+  // A tile taller than wide (the landscape home screen) stacks: the theme name gets its own lines, the arrows go
+  // under a bigger swatch, and the quick switches take one line each.
+  let tall = tileWidth != null && tileHeight != null && tileHeight > tileWidth * 1.3
 
   onTap: screen()
 
@@ -575,28 +578,52 @@ echo ok
       Text { text: "tweaks"; style: label; color: accent; weight: 1 }
       Text { text: st == null ? "loading…" : "${changed} changed"; style: small; color: muted }
     }
-    Row {
-      align: center
-      gap: 6
-      Text { text: "‹"; style: title; color: accent; padding: [6, 0]; onTap: { haptic(); over = set(over, "theme", prevTheme); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set theme ${sh(prevTheme)} && python3 ~/.cache/omalauncher-tweaks/tweaks.py unset background") } }
-      Column {
-        gap: 3
-        weight: 1
-        Text { text: curTheme ?? "…"; style: title; maxLines: 1 }
-        Row {
-          gap: 2
-          height: 6
-          for c in curT.swatch ?? [] { Box { height: 6; weight: 1; background: c } }
+    if tall {
+      Spacer { height: 4 }
+      Text { text: curTheme ?? "…"; style: title; maxLines: 2; align: center }
+      Row {
+        gap: 2
+        height: 14
+        for c in curT.swatch ?? [] { Box { height: 14; weight: 1; background: c } }
+      }
+      Row {
+        align: center
+        Text { text: "‹"; style: title; color: accent; padding: [12, 0]; onTap: { haptic(); over = set(over, "theme", prevTheme); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set theme ${sh(prevTheme)} && python3 ~/.cache/omalauncher-tweaks/tweaks.py unset background") } }
+        Spacer { weight: 1 }
+        Text { text: "›"; style: title; color: accent; padding: [12, 0]; onTap: { haptic(); over = set(over, "theme", nextTheme); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set theme ${sh(nextTheme)} && python3 ~/.cache/omalauncher-tweaks/tweaks.py unset background") } }
+      }
+      if st != null {
+        Column {
+          gap: 8
+          Text { text: corner == 0 ? "□ square" : corner < 1 ? "▢ soft" : "◯ round"; style: small; maxLines: 1; fill: width; padding: [8, 4]; radius: 10 * corners; border: 1; borderColor: (corner > 0) ? accent : border; background: (corner > 0) ? alpha(accent, 0.18) : transparent; color: (corner > 0) ? accent : foreground; onTap: { haptic(); over = set(over, "corners.scale", nextCorner); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set corners.scale ${sh(nextCorner)}") } }
+          Text { text: "gaps ${gap}"; style: small; maxLines: 1; fill: width; padding: [8, 4]; radius: 10 * corners; border: 1; borderColor: (gap > 0) ? accent : border; background: (gap > 0) ? alpha(accent, 0.18) : transparent; color: (gap > 0) ? accent : foreground; onTap: { haptic(); over = set(set(over, "widgets.gaps-in", nextGap), "widgets.gaps-out", nextGap); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set widgets.gaps-in ${sh(nextGap)} && python3 ~/.cache/omalauncher-tweaks/tweaks.py set widgets.gaps-out ${sh(nextGap)}") } }
+          Text { text: barOn ? "bar on" : "bar off"; style: small; maxLines: 1; fill: width; padding: [8, 4]; radius: 10 * corners; border: 1; borderColor: (barOn) ? accent : border; background: (barOn) ? alpha(accent, 0.18) : transparent; color: (barOn) ? accent : foreground; onTap: { haptic(); over = set(over, "status-bar.shown", !barOn); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set status-bar.shown ${sh(barOn ? "false" : "true")}") } }
         }
       }
-      Text { text: "›"; style: title; color: accent; padding: [6, 0]; onTap: { haptic(); over = set(over, "theme", nextTheme); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set theme ${sh(nextTheme)} && python3 ~/.cache/omalauncher-tweaks/tweaks.py unset background") } }
-    }
-    if (rows ?? 2) >= 2 && st != null {
-      Flow {
+    } else {
+      Row {
+        align: center
         gap: 6
-        Text { text: corner == 0 ? "□ square" : corner < 1 ? "▢ soft" : "◯ round"; style: small; maxLines: 1; padding: [8, 4]; radius: 10 * corners; border: 1; borderColor: (corner > 0) ? accent : border; background: (corner > 0) ? alpha(accent, 0.18) : transparent; color: (corner > 0) ? accent : foreground; onTap: { haptic(); over = set(over, "corners.scale", nextCorner); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set corners.scale ${sh(nextCorner)}") } }
-        Text { text: "gaps ${gap}"; style: small; maxLines: 1; padding: [8, 4]; radius: 10 * corners; border: 1; borderColor: (gap > 0) ? accent : border; background: (gap > 0) ? alpha(accent, 0.18) : transparent; color: (gap > 0) ? accent : foreground; onTap: { haptic(); over = set(set(over, "widgets.gaps-in", nextGap), "widgets.gaps-out", nextGap); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set widgets.gaps-in ${sh(nextGap)} && python3 ~/.cache/omalauncher-tweaks/tweaks.py set widgets.gaps-out ${sh(nextGap)}") } }
-        Text { text: barOn ? "bar on" : "bar off"; style: small; maxLines: 1; padding: [8, 4]; radius: 10 * corners; border: 1; borderColor: (barOn) ? accent : border; background: (barOn) ? alpha(accent, 0.18) : transparent; color: (barOn) ? accent : foreground; onTap: { haptic(); over = set(over, "status-bar.shown", !barOn); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set status-bar.shown ${sh(barOn ? "false" : "true")}") } }
+        Text { text: "‹"; style: title; color: accent; padding: [6, 0]; onTap: { haptic(); over = set(over, "theme", prevTheme); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set theme ${sh(prevTheme)} && python3 ~/.cache/omalauncher-tweaks/tweaks.py unset background") } }
+        Column {
+          gap: 3
+          weight: 1
+          Text { text: curTheme ?? "…"; style: title; maxLines: 1 }
+          Row {
+            gap: 2
+            height: 6
+            for c in curT.swatch ?? [] { Box { height: 6; weight: 1; background: c } }
+          }
+        }
+        Text { text: "›"; style: title; color: accent; padding: [6, 0]; onTap: { haptic(); over = set(over, "theme", nextTheme); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set theme ${sh(nextTheme)} && python3 ~/.cache/omalauncher-tweaks/tweaks.py unset background") } }
+      }
+      if (rows ?? 2) >= 2 && st != null {
+        Flow {
+          gap: 6
+          Text { text: corner == 0 ? "□ square" : corner < 1 ? "▢ soft" : "◯ round"; style: small; maxLines: 1; padding: [8, 4]; radius: 10 * corners; border: 1; borderColor: (corner > 0) ? accent : border; background: (corner > 0) ? alpha(accent, 0.18) : transparent; color: (corner > 0) ? accent : foreground; onTap: { haptic(); over = set(over, "corners.scale", nextCorner); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set corners.scale ${sh(nextCorner)}") } }
+          Text { text: "gaps ${gap}"; style: small; maxLines: 1; padding: [8, 4]; radius: 10 * corners; border: 1; borderColor: (gap > 0) ? accent : border; background: (gap > 0) ? alpha(accent, 0.18) : transparent; color: (gap > 0) ? accent : foreground; onTap: { haptic(); over = set(set(over, "widgets.gaps-in", nextGap), "widgets.gaps-out", nextGap); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set widgets.gaps-in ${sh(nextGap)} && python3 ~/.cache/omalauncher-tweaks/tweaks.py set widgets.gaps-out ${sh(nextGap)}") } }
+          Text { text: barOn ? "bar on" : "bar off"; style: small; maxLines: 1; padding: [8, 4]; radius: 10 * corners; border: 1; borderColor: (barOn) ? accent : border; background: (barOn) ? alpha(accent, 0.18) : transparent; color: (barOn) ? accent : foreground; onTap: { haptic(); over = set(over, "status-bar.shown", !barOn); run("python3 ~/.cache/omalauncher-tweaks/tweaks.py set status-bar.shown ${sh(barOn ? "false" : "true")}") } }
+        }
       }
     }
     Spacer { weight: 1 }
