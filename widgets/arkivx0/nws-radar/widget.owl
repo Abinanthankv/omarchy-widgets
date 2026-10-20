@@ -1,8 +1,6 @@
 widget "nws radar" {
   meta { description: "The National Weather Service radar loop for the nearest site, from where you are or a city you type. Tap it for the full loop"; version: "1.1"; license: "MIT"; category: "world"; owl: 8 }
   // Same 3x3 as planes overhead, on the home page, so it takes the open cells beside that tile.
-  page: 1
-  order: 6
   size: 3x3
   minSize: 2x2
   requires { pacman: ["curl", "jq"] }
