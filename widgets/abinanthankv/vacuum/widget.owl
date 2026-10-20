@@ -1,5 +1,5 @@
 widget "vacuum" {
-  meta { description: "Your Xiaomi robot vacuum over your own wi-fi: battery, state, start, stop, dock, modes, a drive pad, and its floor plan drawn on the phone with rooms you tap to clean. A Mi login fetches the map."; version: "1.0"; license: "MIT"; category: "home"; owl: 6 }
+  meta { description: "Your Xiaomi robot vacuum over your own wi-fi: battery, state, start, stop, dock, modes, a drive pad, and its floor plan drawn on the phone with rooms you tap to clean. A Mi login fetches the map."; version: "1.0.1"; license: "MIT"; category: "home"; owl: 6 }
   size: 6x4
   minSize: 2x2
 
@@ -27,7 +27,7 @@ if [ ! -f "$f" ]; then
 fi
 d=~/.cache/omarchy-vacuum
 mkdir -p "$d"
-if [ "$(cat "$d/tag" 2>/dev/null)" != "398345e7d2de" ]; then
+if [ "$(cat "$d/tag" 2>/dev/null)" != "a7c1f04e9b21" ]; then
   cat > "$d/vacuum.py" <<'OMARCHY_VACUUM_PY'
 #!/usr/bin/env python3
 # vacuum.py - dependency-free LAN client for Xiaomi "ijai" robot vacuums.
@@ -2153,9 +2153,6 @@ def open_vacuum(args) -> Vacuum:
     did = args.did or cfg.get("did")
     if did and not str(did).isdigit():
         did = None                      # "auto", or a leftover placeholder
-    if ip and ip.lower() == "auto":
-        ip = resolve_auto(path, cfg)
-        did = did or cfg.get("did")
     if not ip or not token:
         raise ConfigError(
             f"no config at {path}: tap the tile, then setup, and paste the token")
@@ -2163,6 +2160,16 @@ def open_vacuum(args) -> Vacuum:
         raise ConfigError(
             "the token is still the placeholder: tap the tile, then setup, and "
             "paste the 32 hex characters the Xiaomi app uses for this robot")
+    if ip.lower() == "auto":
+        # The status poll never sweeps the LAN: a robot that's off, a phone away
+        # from home or a second Xiaomi device would mean a sweep every 30s.
+        # Setup's save, the login and discover find it.
+        if args.command == "status":
+            raise ConfigError(
+                "the robot's address isn't known yet: tap the tile, then setup, "
+                "and save (that finds it on this wi-fi)")
+        ip = resolve_auto(path, cfg)
+        did = did or cfg.get("did")
     # The drive pad wants the robot to move *now*: one try with a short wait
     # beats a confirmed delivery half a minute later.
     timeout = min(args.timeout, 1.5) if getattr(args, "fast", False) else args.timeout
@@ -2522,7 +2529,7 @@ def main(argv=None) -> int:
 if __name__ == "__main__":
     sys.exit(main())
 OMARCHY_VACUUM_PY
-  printf '%s' '398345e7d2de' > "$d/tag"
+  printf '%s' 'a7c1f04e9b21' > "$d/tag"
 fi
 python3 "$d/vacuum.py" status
   """) every 30s json timeout 60s
