@@ -2,7 +2,7 @@ widget "next bus" {
   size: 6x2
   minSize: 4x2
   requires { pacman: [] }
-  meta { description: "Your next bus, tram or train, live, and whether you need to run for it: pick a stop, a line and how long you walk there, anywhere Transitous has open timetables. Tap the tile to change them"; version: "1.0"; license: "MIT"; category: "world"; owl: 10 }
+  meta { description: "Your next bus, tram or train, live, and whether you need to run for it: pick a stop, a line and how long you walk there, anywhere Transitous has open timetables. Tap the tile to change them"; version: "1.1"; license: "MIT"; category: "world"; owl: 10 }
 
   // The stop, the line and the walk, picked in the full screen and kept across restarts. No location is hard-coded.
   state stopId = "" persist
@@ -71,6 +71,8 @@ widget "next bus" {
   let late = next == null || next.planned == null ? 0 : round((next.at - next.planned) / 60)
   // Three rows or more: the walk, the stop names and the next ones too.
   let roomy = (rows ?? 3) >= 3
+  // A tile taller than wide (the landscape home screen) stacks: destination, minutes, then what to do.
+  let tall = tileWidth != null && tileHeight != null && tileHeight > tileWidth * 1.3
 
   onTap: screen()
 
@@ -87,6 +89,26 @@ widget "next bus" {
     }
   }
 
+  // Whether to relax, leave or run, against the edge given.
+  component Mood(side = "start") {
+    Column {
+      gap: 2
+      if mood == "relax" {
+        Text { text: "relax"; style: label; color: tint; align: side }
+        Text { text: "leave in ${floor(leaveIn / 60)} min"; style: small; color: muted; align: side }
+      } else if mood == "soon" {
+        Text { text: "leave in"; style: label; color: tint; align: side }
+        Text { text: fmtTime(leaveIn, "m:ss", "UTC"); fontSize: 26; fontWeight: 500; color: tint; align: side }
+      } else if mood == "now" {
+        Text { text: "leave now"; fontSize: 22; fontWeight: 600; color: tint; align: side }
+        Text { text: "walk briskly"; style: small; color: muted; align: side }
+      } else {
+        Text { text: "run!"; fontSize: 26; fontWeight: 700; color: tint; align: side }
+        Text { text: "${floor(left / 60)}:${pad(int(left % 60), 2, "0")} to the stop"; style: small; color: muted; align: side }
+      }
+    }
+  }
+
   Column {
     gap: roomy ? 6 : 2
     if stopId == "" {
@@ -96,20 +118,29 @@ widget "next bus" {
       Text { text: stopName; style: body; maxLines: 1 }
       Text { text: board == null ? "…" : problem ?? "nothing leaves soon"; style: small; color: muted }
     } else {
-      Row {
-        gap: 10
-        align: center
-        Badge { r: next }
+      if tall {
+        Row { Badge { r: next } }
         Column {
           gap: 0
-          weight: 1
-          Text { text: "to ${next.to}"; style: body; maxLines: 1 }
-          if roomy {
-            Text { text: "from ${stopName} · ${walk} min walk"; style: small; color: muted; maxLines: 1 }
-          }
+          Text { text: "to ${next.to}"; style: body; maxLines: 2 }
+          Text { text: "${walk} min walk"; style: small; color: muted; maxLines: 1 }
         }
-        if !roomy {
-          Text { text: "${walk} min walk"; style: small; color: muted }
+      } else {
+        Row {
+          gap: 10
+          align: center
+          Badge { r: next }
+          Column {
+            gap: 0
+            weight: 1
+            Text { text: "to ${next.to}"; style: body; maxLines: 1 }
+            if roomy {
+              Text { text: "from ${stopName} · ${walk} min walk"; style: small; color: muted; maxLines: 1 }
+            }
+          }
+          if !roomy {
+            Text { text: "${walk} min walk"; style: small; color: muted }
+          }
         }
       }
       Row {
@@ -117,25 +148,13 @@ widget "next bus" {
         align: bottom
         Text { text: str(floor(left / 60)); fontSize: roomy ? 58 : 44; fontWeight: 300; letterSpacing: -1 }
         Text { text: "min"; fontSize: roomy ? 20 : 17; color: muted; padding: [0, 0, 0, roomy ? 14 : 10] }
-        Spacer { weight: 1 }
-        Column {
-          gap: 2
-          width: 170
-          padding: [0, 0, 0, 10]
-          if mood == "relax" {
-            Text { text: "relax"; style: label; color: tint; align: end }
-            Text { text: "leave in ${floor(leaveIn / 60)} min"; style: small; color: muted; align: end }
-          } else if mood == "soon" {
-            Text { text: "leave in"; style: label; color: tint; align: end }
-            Text { text: fmtTime(leaveIn, "m:ss", "UTC"); fontSize: 26; fontWeight: 500; color: tint; align: end }
-          } else if mood == "now" {
-            Text { text: "leave now"; fontSize: 22; fontWeight: 600; color: tint; align: end }
-            Text { text: "walk briskly"; style: small; color: muted; align: end }
-          } else {
-            Text { text: "run!"; fontSize: 26; fontWeight: 700; color: tint; align: end }
-            Text { text: "${floor(left / 60)}:${pad(int(left % 60), 2, "0")} to the stop"; style: small; color: muted; align: end }
-          }
+        if !tall {
+          Spacer { weight: 1 }
+          Mood { side: "end"; width: 170; padding: [0, 0, 0, 10] }
         }
+      }
+      if tall {
+        Mood {}
       }
       Canvas {
         height: roomy ? 34 : 22
@@ -161,12 +180,33 @@ widget "next bus" {
         rect(bx + 1, y - 4, 5, 4, radius: 1, fill: alpha(background, 0.7))
         if roomy {
           text("your stop", sx, y + 18, size: 10, align: center, color: tint)
-          if len(dots) > k + 2 {
+          if !tall && len(dots) > k + 2 {
             text(lower(replace(dots.last().name, " (${split(dots.last().name, " (").last()}", "")), x1, y + 18, size: 10, align: end, color: muted)
           }
         }
       }
-      if roomy {
+      if tall {
+        Spacer { weight: 1 }
+        Row {
+          gap: 6
+          Text {
+            text: !next.live ? "timetable" : late >= 1 ? "+${late} min" : late <= -1 ? "${late} min" : "on time"
+            style: small
+            color: !next.live ? muted : late >= 5 ? red : late >= 2 ? yellow : green
+            weight: 1
+          }
+          Text { text: len(mine) > 1 ? "then" : "none later yet"; style: small; color: muted }
+        }
+        for r in mine.drop(1).take(2) key r.key {
+          Row {
+            gap: 6
+            if route == "" {
+              Text { text: r.line; style: small; bold: true; maxLines: 1; weight: 1 }
+            }
+            Text { text: fmtTime(r.at, "HH:mm"); style: small }
+          }
+        }
+      } else if roomy {
         Spacer { weight: 1 }
         Row {
           gap: 6
