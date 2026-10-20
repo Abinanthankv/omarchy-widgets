@@ -1,7 +1,7 @@
 widget "what's new" {
   size: 3x2
   minSize: 2x2
-  meta { description: "What's new in the launcher, from its changelog on GitHub. Tap it for every release"; version: "1.0"; license: "MIT"; category: "news"; owl: 5 }
+  meta { description: "What's new in the launcher, from its changelog on GitHub. Tap it for every release"; version: "1.1"; license: "MIT"; category: "news"; owl: 5 }
 
   source log = http("https://raw.githubusercontent.com/SimonSchubert/omalauncher/main/CHANGELOG.md") every 6h timeout 10s status
   source sys = android.system every 1h
@@ -23,11 +23,12 @@ widget "what's new" {
     gap: 2
     Text { text: "what's new"; style: muted }
     if latest != null {
+      // A narrow tile (the landscape home screen) has room for "10-20" beside the version, not the year too.
       Row {
         gap: 6
         align: bottom
         Text { text: latest.version; style: title; color: accent; width: 76; maxLines: 1 }
-        Text { text: behind ? "update" : latest.date; style: small; color: behind ? yellow : muted; align: end; weight: 1; maxLines: 1 }
+        Text { text: behind ? "update" : tileWidth < 180 ? sub(latest.date, 5) : latest.date; style: small; color: behind ? yellow : muted; align: end; weight: 1; maxLines: 1 }
       }
       // Every change, cut off with "…" where the tile ends.
       Text { text: join(latest.items.map(i => "• ${i}"), "\n"); style: small; maxLines: 40; weight: 1 }
