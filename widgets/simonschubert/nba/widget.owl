@@ -2,7 +2,7 @@ widget "nba" {
   meta {
     owl: 5
     description: "NBA scores from ESPN with team logos: live games first, then last night's finals and today's tip-offs. Tap for every game and both conference standings"
-    version: "1.1"
+    version: "1.2"
     license: "MIT"
     category: "sport"
   }
@@ -57,7 +57,10 @@ widget "nba" {
   let cap = clamp((rows ?? 4) * 3 - 2, 5, 14)
   let picked = flatten([live, done.take(ceil(cap / 2)), next]).take(cap)
   let groups = table ?? []
-  let wide = max(max(screenWidth ?? 0, tileWidth ?? 0), 240) >= 280
+  // Tile width only: on a phone the screen is always wide, but a landscape tile
+  // leaves no room for full names beside the fixed-width score centre.
+  let tw = tileWidth ?? screenWidth ?? 240
+  let wide = tw >= 360
   // A line under the last playoff seed, and under the play-in.
   let cuts = [6, 10]
   let bLabel = "GB"
@@ -109,7 +112,7 @@ widget "nba" {
       gap: 6
       Text { text: t.seed < 99 ? t.seed : '–'; width: 20; style: small; color: muted; align: end }
       Badge { logo: t.logo; px: 16 }
-      Text { text: wide ? t.name : t.abbr; weight: 1; style: small; maxLines: 1 }
+      Text { text: tw >= 280 ? t.name : t.abbr; weight: 1; style: small; maxLines: 1 }
       Text { text: t.rec; width: 56; style: small; bold: true; align: end }
       Text { text: t.b ?? '–'; width: 36; style: small; color: muted; align: end }
     }
