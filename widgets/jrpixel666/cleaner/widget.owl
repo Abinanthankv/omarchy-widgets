@@ -2,7 +2,7 @@ widget "cleaner" {
   size: 3x3
   minSize: 3x2
 
-  meta { owl: 8; description: "Finds caches, old packages and leftovers that are safe to delete, and frees the space with a tap, daily or weekly."; version: "1.1"; license: "MIT"; category: "system" }
+  meta { owl: 8; description: "Finds caches, old packages and leftovers that are safe to delete, and frees the space with a tap, daily or weekly."; version: "1.1.1"; license: "MIT"; category: "system" }
 
   requires { pacman: ["pacman-contrib", "util-linux", "findutils", "coreutils", "gawk"] }
 
@@ -156,8 +156,9 @@ widget "cleaner" {
       weight: 1
       clip: true
       padding: [0, 4, 0, 0]
+      // as many lines as fit above the button (none on the short landscape tile)
       if rows >= 3 {
-        for d in dirty.sortBy(d => -items[d.id]).take(3) key d.id {
+        for d in dirty.sortBy(d => -items[d.id]).take(clamp(floor((tileHeight - 150) / 18), 0, 3)) key d.id {
           Row {
             Text { text: d.name; style: small; weight: 1; maxLines: 1 }
             Text { text: fmtBytes(items[d.id]); style: small; color: muted; width: 48; align: end }
