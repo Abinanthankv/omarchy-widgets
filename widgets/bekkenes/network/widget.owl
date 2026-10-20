@@ -5,7 +5,7 @@ widget "network" {
 
   meta {
     description: "Live connection type (wifi, mobile, VPN) and internet latency to 1.1.1.1, with a sparkline and today's loss and round-trip stats"
-    version: "1.0"
+    version: "1.1"
     license: "MIT"
     category: "system"
     owl: 10
@@ -55,6 +55,8 @@ widget "network" {
   let sampleText = todaySamples == 0 ? "0" : fmtNum(todaySamples, {compact: true})
   let upColor = upPct == null ? muted : upPct >= 99 ? green : upPct >= 95 ? yellow : red
   let lossColor = lossPct == null ? muted : lossPct < 1 ? green : lossPct < 5 ? yellow : red
+  // A wide, short tile (the landscape home screen) puts the sparkline beside the number instead of below it.
+  let wide = tileWidth != null && tileHeight != null && tileWidth > tileHeight * 1.3
   let shownIfaces = ifaces.filter(i => i.ifname != "lo" && i.ifname != "dummy0" && !startsWith(i.ifname, "epdg") && indexOf(i.flags, "LOWER_UP") >= 0)
 
   // Everything is kept per local date; the first sample after midnight starts over.
@@ -136,27 +138,60 @@ widget "network" {
 
   Column {
     gap: 6
-    Row {
-      gap: 6
-      align: center
-      NetIcon { kind: netType; tint: iconTint; size: 22 }
-      Text { text: statusLabel; style: small; color: iconTint; weight: 1; maxLines: 1 }
-    }
-    Row {
-      gap: 4
-      align: bottom
-      Text { text: rttText; fontSize: online ? 46 : 34; fontWeight: 300; color: tint; maxLines: 1; animate color: tween(250ms) }
-      Text { text: online ? "ms" : ""; style: muted; padding: [2, 0, 0, 8] }
-    }
-    Sparkline {
-      values: hist
-      min: 0
-      max: scaleMax
-      color: tint
-      area: alpha(tint, 0.18)
-      thickness: 2
-      fill: width
-      weight: 1
+    if wide {
+      Row {
+        gap: 10
+        weight: 1
+        Column {
+          gap: 6
+          width: 112
+          Row {
+            gap: 6
+            align: center
+            NetIcon { kind: netType; tint: iconTint; size: 22 }
+            Text { text: statusLabel; style: small; color: iconTint; weight: 1; maxLines: 1 }
+          }
+          Row {
+            gap: 4
+            align: bottom
+            Text { text: rttText; fontSize: online ? 46 : 34; fontWeight: 300; color: tint; maxLines: 1; animate color: tween(250ms) }
+            Text { text: online ? "ms" : ""; style: muted; padding: [2, 0, 0, 8] }
+          }
+        }
+        Sparkline {
+          values: hist
+          min: 0
+          max: scaleMax
+          color: tint
+          area: alpha(tint, 0.18)
+          thickness: 2
+          fill: height
+          weight: 1
+        }
+      }
+    } else {
+      Row {
+        gap: 6
+        align: center
+        NetIcon { kind: netType; tint: iconTint; size: 22 }
+        Text { text: statusLabel; style: small; color: iconTint; weight: 1; maxLines: 1 }
+      }
+      Row {
+        gap: 4
+        align: bottom
+        Text { text: rttText; fontSize: online ? 46 : 34; fontWeight: 300; color: tint; maxLines: 1; animate color: tween(250ms) }
+        Text { text: online ? "ms" : ""; style: muted; padding: [2, 0, 0, 8] }
+      }
+      Sparkline {
+        values: hist
+        min: 0
+        max: scaleMax
+        color: tint
+        area: alpha(tint, 0.18)
+        thickness: 2
+        fill: width
+        weight: 1
+      }
     }
     Row {
       Text { text: "today"; style: label; color: muted; weight: 1 }
