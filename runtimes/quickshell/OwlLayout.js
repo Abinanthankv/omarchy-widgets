@@ -45,7 +45,7 @@ function fixedHeight(p) { return num(p.height, num(p.size, -1)) }
 
 // Whether `node` reaches for all the width ("w") or height ("h") it is given.
 // `hug` is set for the children of a Row or Flow in a file of owl 10 or later,
-// where a Text is as wide as its text.
+// where a Text is as wide as its text, and for those of a Column that hugs.
 function wants(node, axis, hug) {
   if (!node) return false
   var p = node.p || {}
@@ -66,9 +66,9 @@ function wants(node, axis, hug) {
   // A Popup's menu is in a window of its own: the layout it's in doesn't hold it.
   if (k === "Popup") return false
   if (k === "Row" || k === "Column" || k === "Box" || k === "Flow") {
-    var rowHug = hugs(node)
+    var inner = k === "Row" || k === "Flow" ? hugs(node) : columnHugs(node, hug)
     return (node.c || []).some(function(c) {
-      return (k === "Row" && num((c.p || {}).weight, 0) > 0) || wants(c, "w", rowHug && (k === "Row" || k === "Flow"))
+      return (k === "Row" && num((c.p || {}).weight, 0) > 0) || wants(c, "w", inner)
     })
   }
   return false
@@ -77,14 +77,31 @@ function wants(node, axis, hug) {
 // The level the node's file declared, which Owl.js's render stamps on each node.
 function hugs(node) { return !!node && node.level >= 10 }
 
+// Since owl 11 a Column in a Row or Flow without width, weight or fill is as
+// wide as its content: its Texts are as wide as their text, as they are in the
+// Row, and so is a Column like it inside. `hug` is whether its parent passes
+// that on: a Row or Flow, or a Column that hugs. A lazy Column fills.
+function columnHugs(node, hug) {
+  if (!hug || !node || node.kind !== "Column" || node.level < 11) return false
+  var p = node.p || {}
+  return !sized(p) && p.lazy !== true
+}
+
+// What a child is handed as its `hug`, by a parent of `parentKind` that was
+// handed `parentHug` itself.
+function hugFor(child, parentKind, parentNode, parentHug) {
+  if (parentKind === "Row" || parentKind === "Flow") return hugs(child)
+  return parentKind === "Column" && columnHugs(parentNode, parentHug)
+}
+
 // The QtQuick.Layouts attached values for `child` inside a `parentKind`.
 // Returns {fillW, fillH, prefW, prefH, stretchW, stretchH} with sizes in dp
 // (-1 is "its own size").
-function place(child, parentKind) {
+function place(child, parentKind, hugged) {
   var p = child && child.p ? child.p : {}
   var w = fixedWidth(p), h = fixedHeight(p)
   var weight = num(p.weight, 0)
-  var hug = (parentKind === "Row" || parentKind === "Flow") && hugs(child)
+  var hug = hugged === undefined ? (parentKind === "Row" || parentKind === "Flow") && hugs(child) : hugged
   var out = { fillW: w < 0 && wants(child, "w", hug), fillH: h < 0 && wants(child, "h"),
     prefW: w, prefH: h, stretchW: -1, stretchH: -1 }
   // Qt's stretch factors are whole numbers, and weight: 1.2 beside weight: 1
@@ -137,6 +154,30 @@ var STYLES = {
 }
 
 function style(name) { return STYLES[name] || STYLES.body }
+
+// minLines (owl 11): the lines a Text is at least as tall as, never past maxLines.
+function minLines(p) {
+  var max = maxLines(p)
+  var n = Math.floor(num(p.minLines, 1))
+  return Math.max(1, max > 0 ? Math.min(n, max) : n)
+}
+
+// A Column's or Grid's children in the order they're laid out. A lazy one with
+// `reverse` (owl 11) lists from its end, its first child at the bottom: a
+// Column's turned around, a Grid's rows of `columns` turned around, the short
+// last row on top with empty cells (null) after it.
+function ordered(node) {
+  var c = node && node.c ? node.c : []
+  var p = node && node.p ? node.p : {}
+  if (p.lazy !== true || p.reverse !== true) return c
+  if (node.kind === "Column") return c.slice().reverse()
+  if (node.kind !== "Grid") return c
+  var cols = Math.max(1, Math.round(num(p.columns, 2)))
+  var out = []
+  for (var start = Math.floor((c.length - 1) / cols) * cols; start >= 0; start -= cols)
+    for (var i = start; i < start + cols; i++) out.push(i < c.length ? c[i] : null)
+  return out
+}
 
 // huge and title stay on one line in narrow tiles instead of breaking mid-word.
 function maxLines(p) {

@@ -271,6 +271,8 @@ Item {
   readonly property var noAlarm: ({ set: false, time: null, app: null })
   // The launcher's coding agents, for a face with its own prompt bar: none here.
   readonly property var noAgents: ({ default: null, installed: [] })
+  // The launcher's app drawer (owl 11): no apps in it here, and Linux is the desktop itself.
+  readonly property var noDrawer: ({ apps: [], linux: "installed", monochrome: false, work: null, updates: 0 })
 
   // The sources that are pushed rather than polled, as they start.
   function pushNow() {
@@ -280,6 +282,7 @@ Item {
     // No Android apps on a desktop, and no recent strip.
     if (root.kind === "android.apps" || root.kind === "android.recent") root.widget.sourceObject(root.spec.slot, [])
     if (root.kind === "android.agents") root.widget.sourceObject(root.spec.slot, root.noAgents)
+    if (root.kind === "android.drawer") root.widget.sourceObject(root.spec.slot, root.noDrawer)
     if (root.kind === "android.alarm") root.widget.sourceObject(root.spec.slot, root.noAlarm)
     if (root.kind === "android.media") root.widget.sourceObject(root.spec.slot, root.media)
   }

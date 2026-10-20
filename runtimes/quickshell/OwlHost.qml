@@ -118,6 +118,11 @@ QtObject {
       return widget.report("open(\"" + s(0) + "\") opens an app or agent from the launcher's drawer, which this shell does not have")
     case "ask":
       return widget.report("ask(...) sends a prompt to the launcher's coding agent, which this shell does not have")
+    // The drawer's long-press menu and the work profile (owl 11).
+    case "appAction":
+      return widget.report("appAction(\"" + s(0) + "\", ...) acts on an app in the launcher's drawer, which this shell does not have")
+    case "workApps":
+      return widget.report("workApps(...) pauses an Android work profile, which this shell does not have")
     }
   }
 

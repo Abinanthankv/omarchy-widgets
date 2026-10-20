@@ -1,5 +1,5 @@
 widget "edge" {
-  meta { owl: 10 }
+  meta { owl: 11 }
   source raw = cmd("printf '%s' '{\"b\":2,\"a\":[1,\"2\",null,true],\"10\":\"x\",\"2\":\"y\",\"n\":-0.5}'") json
   source txt = cmd("printf ' 81%% \n\nnext line \n'")
   source now = clock every 1s
@@ -69,6 +69,14 @@ widget "edge" {
       toJson(raw), toJson([1, "a\n\"b\u0001", null, true, 1.5, {k: []}, 1792231445.5, 0.0000001]), toJson(txt), toJson({"x y": now}),
       capitalize("hello world"), capitalize(""), capitalize(null), capitalize("élan"), capitalize(12), asin(0.5), acos(2), asin("1"), acos(null),
       flatten([1, [2, [3, [4]]]], 2), flatten([1, [2]], 0), flatten([[[[1]]]], 99), flatten([1, [2, [3]]], -1),
+      chunk([1, 2, 3, 4, 5], 2), chunk([], 3), chunk([1, 2], 0), chunk([1, 2], -3), chunk(xs, "2"), chunk(raw, 2), chunk(null, 2), chunk([1, 2, 3], 2.9),
+      rank(["Calendar", "Calculator", "Café", "cal"], "cal"), rank([{name: "Calendar", score: 0}, {name: "Calculator", score: 5}, {name: "Calc", score: 99}], "cal"),
+      rank([{name: "WhatsApp", alias: "WhatsApp work"}, {name: "Work Mail"}, {name: "Files"}], "work"), rank(["Claude Code", "Visual Studio Code", "vscode"], "vsc"),
+      rank(["İstanbul", "Ärzte", "ÆON", "naïve café", "Straße"], "a"), rank(["Café Bar", "cafe", "CAFÉ"], "  CAFE "), rank([1, 12, null, true, [1]], "1"),
+      rank(["b a", "a b", "ab"], "a b"), rank(["x"], ""), rank([{name: null}, {score: 3}, {name: "x", score: "4%"}, {name: "x", score: -2}], "x"), rank(xs, "1"),
+      strongMatch("Files", "fi"), strongMatch("Visual Studio Code", "vsc"), strongMatch("Files", "il"), strongMatch("Visual Studio Code", "vis stu code"),
+      strongMatch("Visual Studio Code", "vis\ncode"), strongMatch({name: "WhatsApp", alias: "WhatsApp work"}, "work"), strongMatch(null, "x"), strongMatch("x", ""),
+      strongMatch("Ärzte Termin", "at"), strongMatch(12, "12"),
       round(999998000001, 8), round(2.5), round(0.49999999999999994), round(-0.5), round(1000000000000000000000 * 1000000000000000000000, 2), round(4503599627370497), round(1.23456, 3)
     ] {
       Text { text: "${i}: ${e}" }
@@ -97,6 +105,13 @@ widget "edge" {
         text("styled", 0, 0, font: "serif", fontWeight: 600, italic: true, letterSpacing: 2)
         text("plain", 0, 10, size: 9, bold: true)
       }
+    }
+    Column { lazy: true; reverse: count > 0; gap: 2
+      for a in chunk(xs, 3) { Text { text: join(a, " "); minLines: 2; maxLines: 3 } }
+      Image { src: "x.png"; label: "an ${count}" }
+    }
+    Grid { lazy: true; reverse: true; columns: 2
+      Text { text: "g"; minLines: count }
     }
     let label = "shadowed"
     Text { text: label; style: label }

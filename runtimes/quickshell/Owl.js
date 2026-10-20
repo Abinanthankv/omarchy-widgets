@@ -580,11 +580,13 @@ Parser.prototype = {
   },
 
   // What the file is, from its first word: a widget, a face (a whole home
-  // page) or an app. This runtime draws widgets and faces; it has no app drawer.
+  // page), an app or a panel. This runtime draws widgets and faces; it has no
+  // app drawer, and no home screen to swipe a panel out of.
   widget: function() {
-    var kind = ["widget", "face", "app"].filter(function(w) { return this.isId(this.t(), w) }, this)[0]
-    if (!kind) this.fail("an owl file starts with: widget \"name\" {, face \"name\" { or app \"name\" {")
+    var kind = ["widget", "face", "app", "panel"].filter(function(w) { return this.isId(this.t(), w) }, this)[0]
+    if (!kind) this.fail("an owl file starts with: widget \"name\" {, face \"name\" {, app \"name\" { or panel \"name\" {")
     if (kind === "app") this.fail("this is an app, and only the launcher has an app drawer to open it from")
+    if (kind === "panel") this.fail("this is a panel, and only the launcher has the home screen and prompt bar that open it")
     this.next()
     var name = this.t().type === T_STR ? this.literalString(this.next()) : null
     this.punct("{")
@@ -981,7 +983,7 @@ var ACTIONS = {
   terminal: [1, 2], app: [1, 1], run: [1, 1], url: [1, 1], launcher: [1, 1], refresh: [0, 1],
   media: [1, 1], androidApp: [1, 1], copy: [1, 1], notify: [1, 2], volume: [1, 1],
   notification: [2, 2], screen: [0, 0], close: [0, 0], torch: [1, 1], share: [1, 1], haptic: [0, 0], sound: [1, 1], post: [1, 3],
-  open: [1, 1], ask: [1, 2]
+  open: [1, 1], ask: [1, 2], appAction: [2, 2], workApps: [1, 1], shortcuts: [1, 1]
 }
 
 function Args(args, host) {
@@ -1044,6 +1046,92 @@ function toLong(x) {
 
 // Kotlin's roundToLong: half rounds up (towards positive infinity).
 function roundHalfUp(x) { return Math.floor(x + 0.5) }
+
+// ------------------------------------------------------------------ search
+//
+// AppSearch.kt: ranking for the launcher's bar, and for rank() and strongMatch(): what's typed is either an
+// app to open or a prompt for an agent. Tiers are 100 apart so a usage boost (under 100) reorders within a
+// tier, never across.
+
+var EXACT = 600, PREFIX = 500, WORD_PREFIX = 400, INITIALS = 300, SUBSTRING = 200, SUBSEQUENCE = 100
+
+// Kotlin's \p{M} and [^\p{L}\p{N}]; an engine without Unicode property escapes gets the common ranges.
+var MARKS, WORD_BREAK
+try {
+  MARKS = new RegExp("\\p{M}+", "gu")
+  WORD_BREAK = new RegExp("[^\\p{L}\\p{N}]+", "u")
+} catch (e) {
+  MARKS = /[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f]+/g
+  WORD_BREAK = /[^0-9A-Za-z\u00aa\u00b2\u00b3\u00b5\u00b9\u00ba\u00bc-\u00be\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u02ff\u0370-\u1fff\u2070-\u209f\u2150-\u218f\u2460-\u24ff\u2c00-\ud7ff\uf900-\ufdff\ufe70-\ufefc\uff10-\uff19\uff21-\uff3a\uff41-\uff5a\uff66-\uffdc]+/
+}
+
+// Lowercase with accents stripped; lowercased first, so a mark lowercasing adds (İ's dot) goes too.
+function foldAccents(s) { return s.toLowerCase().normalize("NFD").replace(MARKS, "") }
+
+function searchWords(folded) { return folded.split(WORD_BREAK).filter(function(w) { return w.length > 0 }) }
+
+function searchQuery(raw) {
+  var t = foldAccents(raw.trim())
+  return { text: t, words: searchWords(t) }
+}
+
+function matchScore(name, query) { return scoreFolded(foldAccents(name), searchQuery(query)) }
+
+function scoreFolded(n, query) {
+  var q = query.text
+  if (!q.length) return 0
+  if (n === q) return EXACT
+  if (n.indexOf(q) === 0) return PREFIX
+  var qw = query.words, nw = searchWords(n)
+  if (qw.length && qw.every(function(w) { return nw.some(function(x) { return x.indexOf(w) === 0 }) })) return WORD_PREFIX
+  if (qw.length === 1 && q.length >= 2 && nw.length > 1 && initialsStart(nw, q)) return INITIALS
+  if (n.indexOf(q) >= 0) return SUBSTRING
+  if (qw.length === 1 && isSubsequence(q, n)) return SUBSEQUENCE
+  return 0
+}
+
+function initialsStart(nameWords, q) {
+  if (q.length > nameWords.length) return false
+  for (var i = 0; i < q.length; i++) if (nameWords[i].charAt(0) !== q.charAt(i)) return false
+  return true
+}
+
+function isSubsequence(needle, hay) {
+  var i = 0
+  for (var k = 0; k < hay.length; k++) if (i < needle.length && hay.charAt(k) === needle.charAt(i)) i++
+  return i === needle.length
+}
+
+// Enter opens the top app rather than asking the agent: a short query (two words at most, one line) that names it well.
+function isStrongMatch(score, query) {
+  return score >= INITIALS && query.indexOf("\n") < 0 && searchWords(foldAccents(query)).length <= 2
+}
+
+// rank() and strongMatch() read a map by its name and alias, as the bar reads apps; a text matches as it is.
+function rankText(v) { return v === null || v === undefined ? null : show(v) }
+function rankField(v, name) { return v instanceof Map && v.has(name) ? v.get(name) : null }
+function rankName(v) { var t = rankText(v instanceof Map ? rankField(v, "name") : v); return t === null ? "" : t }
+function rankAlias(v) { return rankText(rankField(v, "alias")) }
+
+// Kotlin's compareTo on Strings: by UTF-16 units.
+function unitCompare(a, b) { return a < b ? -1 : a > b ? 1 : 0 }
+
+function rankMatches(items, query) {
+  var q = searchQuery(query)
+  if (!q.text.length) return []
+  var hits = []
+  items.forEach(function(item) {
+    var n = rankName(item), folded = foldAccents(n), alias = rankAlias(item)
+    var sc = Math.max(scoreFolded(folded, q), alias !== null ? scoreFolded(foldAccents(alias), q) : 0)
+    if (sc <= 0) return
+    var b = num(rankField(item, "score"))
+    var boost = Math.min(Math.max(toInt((b === null ? 0 : b) * 10), 0), 99)
+    hits.push({ item: item, order: sc + boost, length: n.length, folded: folded })
+  })
+  return stableSort(hits, function(x, y) {
+    return y.order - x.order || x.length - y.length || unitCompare(x.folded, y.folded)
+  }).map(function(h) { return h.item })
+}
 
 function lst(items) { return items.length > 1000 ? items.slice(0, 1000) : items }
 
@@ -2121,6 +2209,27 @@ var BUILTINS = {
   last: B(1, 1, function(a) { var l = a.list(0); return l.length ? l[l.length - 1] : null }),
   indexOf: B(2, 2, function(a) { return indexIn(a.list(0), a.get(1)) }),
   unique: B(1, 1, function(a) { return lst(uniq(a.list(0))) }),
+  // owl 11: chunk(list, n), the list in lists of n, the last one shorter: rows of a grid built by hand.
+  chunk: B(2, 2, function(a) {
+    var l = a.list(0)
+    a.tick(l.length)
+    var n = Math.max(a.int(1, 1), 1), out = []
+    for (var i = 0; i < l.length; i += n) out.push(l.slice(i, i + n))
+    return lst(out)
+  }),
+  // owl 11: the matches of a query best first, as the bar ranks apps: by a map's name (and alias), with its score as the boost.
+  rank: B(2, 2, function(a) {
+    var l = a.list(0)
+    a.tick(l.length * 4)
+    return lst(rankMatches(l, a.str(1)))
+  }),
+  // owl 11: whether Enter in the bar would open this match rather than ask the agent; the tiers stay the launcher's.
+  strongMatch: B(2, 2, function(a) {
+    var item = a.get(0), q = a.str(1)
+    var alias = rankAlias(item)
+    var sc = Math.max(matchScore(rankName(item), q), alias !== null ? matchScore(alias, q) : 0)
+    return isStrongMatch(sc, q)
+  }),
   // flatten(list): one level of lists in lists; owl 9 takes how many levels.
   flatten: B(1, 2, function(a) {
     var l = a.list(0)
@@ -2314,7 +2423,7 @@ var OPERATORS = {
 
 // ---------------------------------------------------------------- compiler
 
-var LEVEL = 10
+var LEVEL = 11
 var MAX_NODES = 500
 var MAX_SCREEN_NODES = 1000
 var MAX_ASSET_BYTES = 2097152
@@ -2322,13 +2431,13 @@ var MAX_ASSET_BYTES = 2097152
 var MAX_PAGE = 1000
 
 var KINDS = {
-  Column: [["gap", "align", "justify", "scroll"], "ui"],
+  Column: [["gap", "align", "justify", "scroll", "lazy", "reverse"], "ui"],
   Row: [["gap", "align", "justify", "wrap"], "ui"],
   Flow: [["gap", "align", "justify"], "ui"],
   Box: [["align"], "ui"],
-  Grid: [["columns", "gap"], "ui"],
-  Text: [["text", "style", "color", "fontSize", "bold", "italic", "font", "align", "maxLines", "spans", "fontWeight", "letterSpacing"], "none"],
-  Image: [["src", "fit", "tint"], "none"],
+  Grid: [["columns", "gap", "lazy", "reverse"], "ui"],
+  Text: [["text", "style", "color", "fontSize", "bold", "italic", "font", "align", "maxLines", "minLines", "spans", "fontWeight", "letterSpacing"], "none"],
+  Image: [["src", "fit", "tint", "label"], "none"],
   Button: [["text", "color"], "none"],
   Progress: [["value", "max", "color", "track"], "none"],
   Ring: [["value", "max", "color", "track", "thickness", "start", "sweep"], "none"],
@@ -2402,18 +2511,32 @@ var CANVAS_TEXT_STYLE = "text(...) with font, fontWeight, italic or letterSpacin
 ;[FACE_FILE, "onLongPress", "Text.spans", "Text.fontWeight", "Text.letterSpacing", GRADIENT_BACKGROUND, "frost",
   "android.agents", "android.recent", "open", "ask", "Popup", "Input.underline", FONT_FILE, CANVAS_TEXT_STYLE]
   .forEach(function(k) { SINCE[k] = 10 })
+var PANEL_FILE = "panel \"…\" { }"
+// A panel's read-only name for the prompt bar's text.
+var QUERY = "query"
+var APP_STATUS_BAR = "an app's statusBar"
+// owl 11: panels, files a swipe on home opens (the app drawer is one), with the prompt bar's text; the drawer's
+// apps and what their long-press menu does; long lists built as they scroll into view; the bar's search ranking;
+// an app that hides the status bar.
+;[PANEL_FILE, QUERY, "onKey", "android.drawer", "appAction", "workApps", "shortcuts", APP_STATUS_BAR,
+  "Column.lazy", "Grid.lazy", "Column.reverse", "Grid.reverse", "Image.label", "Text.minLines", "rank", "strongMatch", "chunk"]
+  .forEach(function(k) { SINCE[k] = 11 })
 
 var MANAGERS = { pacman: /^[a-z0-9@_+][a-z0-9@._+-]*$/ }
 // onLongPress only off the home grid: on a tile, long-press belongs to the home screen, which lifts it to move it.
 var HANDLER_PARAMS = { onTap: ["x", "y"], onLongPress: ["x", "y"], onDrag: ["dx", "dy", "x", "y"], onChange: ["value"],
-  onSubmit: ["value"], onDismiss: [] }
+  onSubmit: ["value"], onDismiss: [],
+  // A panel's, at its top: a key pressed in the prompt bar while it's open.
+  onKey: ["value"] }
 var HANDLER_KINDS = { onChange: ["Slider", "Input"], onSubmit: ["Input"], onDismiss: ["Popup"] }
 var TRIGGER_PARAMS = { on: ["value", "old"] }
-var ANDROID = ["battery", "device", "media", "notifications", "volume", "system", "alarm", "modes", "apps", "agents", "recent"]
+var ANDROID = ["battery", "device", "media", "notifications", "volume", "system", "alarm", "modes", "apps", "agents", "recent", "drawer"]
 var MEDIA = ["toggle", "play", "pause", "next", "previous", "open"]
 var VOLUME = ["up", "down", "mute", "unmute", "toggle"]
 var TORCH = ["on", "off", "toggle"]
 var NOTIFICATION = ["open", "dismiss"]
+var APP_ACTION = ["pin", "info", "uninstall", "remove", "edit", "share"]
+var WORK_APPS = ["pause", "resume", "toggle"]
 var TILE = ["cols", "rows", "tileWidth", "tileHeight", "screenWidth", "screenHeight", "corners"]
 var WIDGET_PROPS = ["size", "minSize", "page", "order", "padding", "background"]
 // A face has no tile's size; it says where it goes and whether the status bar stays over it.
@@ -2547,7 +2670,7 @@ Compiler.prototype = {
       this.fail("this widget needs owl " + level + "; the launcher supports up to " + LEVEL + ", so update the launcher", levelField.pos)
     if (body.animations.length) this.fail("animate belongs inside a node", body.animations[0].pos)
     body.handlers.forEach(function(h) {
-      if (h.name !== "onTap") self.fail("a widget only takes onTap at the top level", h.pos)
+      if (h.name !== "onTap") self.fail("a " + self.ast.kind + " only takes onTap at the top level", h.pos)
     })
     body.decls.forEach(function(d) {
       if (d.kind !== "meta" && d.kind !== "trigger" && d.kind !== "requires" && self.slots.hasOwnProperty(d.name))
@@ -2758,6 +2881,7 @@ Compiler.prototype = {
       if (e.name === "notifications") this.commands.push("read Android notifications (apps, titles and text)")
       if (e.name === "apps") this.commands.push("read installed Android apps (names, packages and icons)")
       if (e.name === "recent") this.commands.push("read the recently opened apps")
+      if (e.name === "drawer") this.commands.push("read the launcher's apps (names and icons)")
       src.kind = "android." + e.name
       src.every = Math.max(every === null ? 60 : every, 1)
       src.timeout = 0
@@ -2951,6 +3075,8 @@ Compiler.prototype = {
       // On a tile it would raise the keyboard whenever its page shows.
       if (p.name === "focus" && self.inScreen === false) self.fail("focus only works in a screen { }", p.pos)
       self.since(n.type + "." + p.name, p.pos)
+      if (p.name === "reverse" && !body.props.some(function(q) { return q.name === "lazy" }))
+        self.fail("reverse lists a lazy " + n.type + " from its end: add lazy: true", p.pos)
       if (p.name === "background" && self.gradient(p.value)) self.since(GRADIENT_BACKGROUND, p.pos)
       if (p.name === "frost") self.since("frost", p.pos)
       if (p.name === "font") self.font(p.value, scope)
@@ -2960,6 +3086,7 @@ Compiler.prototype = {
     body.handlers.forEach(function(h) {
       if (!HANDLER_PARAMS.hasOwnProperty(h.name))
         self.fail("unknown handler '" + h.name + "' (" + Object.keys(HANDLER_PARAMS).join(", ") + ")", h.pos)
+      if (h.name === "onKey") self.fail("onKey goes at the top of a panel, next to onSubmit", h.pos)
       var kinds = HANDLER_KINDS[h.name]
       if (kinds && kinds.indexOf(n.type) < 0) self.fail(h.name + " only works on " + kinds.join(" and "), h.pos)
       if (h.name === "onLongPress" && self.inScreen === false && !self.isFace)
@@ -2987,7 +3114,11 @@ Compiler.prototype = {
       var src = body.props.filter(function(p) { return p.name === "src" })[0]
       if (src) this.webFile(src.value, scope, "image")
     }
-    if (n.type === "Shader") this.animated = true
+    // A shader animates only if its code reads `time`; code that's worked out at run time might.
+    if (n.type === "Shader") {
+      var code = props.code
+      if (!code || !code.k || /\btime\b/.test(show(code.c))) this.animated = true
+    }
     if (kind[1] === "none" && body.items.length) this.fail(n.type + " can't hold other nodes", body.items[0].pos)
     var children = kind[1] === "none" ? []
       : kind[1] === "ui" ? this.items(body.items, scope, "ui")
@@ -3126,11 +3257,21 @@ Compiler.prototype = {
         return function(env) { env.host.runInto(show(run(command, env)), slot) }
       }
       if (call && call.name === "post") return this.post(call, scope, slot)
+      if (call && call.name === "shortcuts") {
+        // s = shortcuts(key): they load off the main thread, and arrive in the state.
+        if (call.args.length !== 1 || call.named.length) this.fail("shortcuts takes an app's key", call.pos)
+        this.since("shortcuts", call.pos)
+        var key = this.ex(call.args[0], scope)
+        this.commands.push("read an app's shortcuts (the actions its long-press menu offers)")
+        return function(env) { env.host.shortcutsInto(show(run(key, env)), slot) }
+      }
       var v = this.ex(st.value, scope)
       return function(env) { env.host.write(slot, run(v, env)) }
     }
     var c = st.call
     if (c.name === "post") return this.post(c, scope, null)
+    if (c.name === "shortcuts")
+      this.fail("shortcuts(...) puts an app's shortcuts into a state, when they've loaded: menuShortcuts = shortcuts(a.key)", c.pos)
     var arity = ACTIONS[c.name]
     if (!arity) this.fail("'" + c.name + "' isn't an action (" + Object.keys(ACTIONS).join(", ") + ")", c.pos)
     if (c.args.length < arity[0] || c.args.length > arity[1])
@@ -3144,10 +3285,16 @@ Compiler.prototype = {
       this.fail("torch takes true, false, " + TORCH.join(", "), c.pos)
     if (c.name === "notification" && first !== null && NOTIFICATION.indexOf(first) < 0)
       this.fail("notification takes " + NOTIFICATION.join(", ") + " and a notification's key", c.pos)
+    if (c.name === "appAction" && first !== null && APP_ACTION.indexOf(first) < 0)
+      this.fail("appAction takes " + APP_ACTION.join(", ") + " and an app's key", c.pos)
+    if (c.name === "workApps" && first !== null && WORK_APPS.indexOf(first) < 0)
+      this.fail("workApps takes " + WORK_APPS.join(", "), c.pos)
     this.since(c.name, c.pos)
     if (c.name === "sound") this.webFile(c.args[0], scope, "sound")
     if ((c.name === "screen" || c.name === "close") && this.screenAction === null) this.screenAction = c.pos
     // The reviewer sees what a widget would ask, as it sees a command.
+    // Uninstalling and removing take apps away: the reviewer sees which entries a widget uses.
+    if (c.name === "appAction") this.commands.push("act on an app from the drawer's menu: " + (first !== null ? first : "any of its entries"))
     if (c.name === "ask") this.commands.push(first !== null ? "ask the agent: " + first : "ask the agent something built from widget values")
     if (c.name === "run" || c.name === "terminal" || c.name === "app") {
       this.commands.push(first !== null ? first : c.name + "(…) built from widget values")
@@ -3366,6 +3513,8 @@ Compiler.prototype = {
       var tn = e.name
       return new Ev(function(env) { return env.host.tile(tn) })
     }
+    // The prompt bar's text, which only a panel has; this runtime has none.
+    if (e.name === QUERY) this.fail("query is the prompt bar's text, which only a panel has", e.pos)
     if (ENUM_WORDS.indexOf(e.name) >= 0) this.fail("'" + e.name + "' isn't a value here", e.pos)
     this.fail("unknown name '" + e.name + "'", e.pos)
   },
@@ -3448,6 +3597,8 @@ function formatError(src, e) {
 //   runInto(cmd, slot) runs a command and later calls setState(slot, output)
 //   post(url, body, headers, slot) sends an HTTP POST; with a slot, it later
 //                     calls setState(slot, {code, ok, out})
+//   shortcutsInto(key, slot) an app's shortcuts, later through setState(slot, list);
+//                     without it, the slot gets an empty list
 //   report(message)   a runtime error, for the widget's error log
 //   changed()         something a render reads has changed
 //
@@ -3522,6 +3673,10 @@ Instance.prototype = {
       act: function(name, args) { self.host.act(name, args) },
       runInto: function(cmd, slot) { self.host.runInto(cmd, slot) },
       post: function(url, body, headers, slot) { self.host.post(url, body, headers, slot) },
+      shortcutsInto: function(key, slot) {
+        if (self.host.shortcutsInto) self.host.shortcutsInto(key, slot)
+        else self.setState(slot, [])
+      },
       report: function(msg) { self.host.report(msg) }
     }
   },

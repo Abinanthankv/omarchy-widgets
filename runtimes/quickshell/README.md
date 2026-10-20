@@ -82,9 +82,17 @@ Where it differs, because Android is not here:
   text, a line to type into -- not an embedded foot window, which only a
   compositor can do. Full-screen programs open in a real terminal.
 - **android.notifications**, **android.apps** and **android.recent** are empty
-  lists and **android.agents** has none installed; **androidApp()**,
-  **notification()**, **open()** and **ask()** report that there is no Android
-  or launcher drawer. A shell that has its own can override `act()`.
+  lists, **android.agents** has none installed and **android.drawer** no apps;
+  **androidApp()**, **notification()**, **open()**, **ask()**, **appAction()**
+  and **workApps()** report that there is no Android or launcher drawer, and
+  `shortcuts(...)` gives an empty list. A shell that has its own can override
+  `act()`.
+- **Apps and panels** (`app "…" { }`, `panel "…" { }`) are refused: there is
+  no app drawer to open an app from, and no home screen or prompt bar to swipe
+  a panel out of. `query` is therefore unknown here too.
+- **lazy** Columns and Grids scroll, but build every row: the launcher's lazy
+  lists save work this runtime doesn't need to. `reverse` still lists them from
+  the bottom and starts at the end.
 - **Faces** take the board's whole width and a window's height. There is no
   status bar to hide and no navigation bar, so `statusBar` changes nothing and
   `screenInset` is 0.

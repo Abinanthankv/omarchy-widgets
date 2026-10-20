@@ -23,12 +23,18 @@ Item {
   property var node: null
   // The OwlWidget this node belongs to: dp, the theme, fonts, the frame clock.
   property var widget: null
+  // Whether the node it's in hands it a hug: a Row's, or a hugging Column's (OwlLayout.hugFor).
+  property bool hugged: false
 
   readonly property var p: root.node && root.node.p ? root.node.p : ({})
   readonly property var anim: root.node && root.node.a ? root.node.a : ({})
   readonly property var handlers: root.node && root.node.h ? root.node.h : ({})
   readonly property string kind: root.node ? String(root.node.kind) : ""
-  readonly property var children_: root.node && root.node.c ? root.node.c : []
+  readonly property var children_: L.ordered(root.node)
+  // A lazy Column or Grid scrolls (owl 11); this runtime builds all of it, as the launcher does where it can't measure one.
+  readonly property bool scrolls: root.p.scroll === true || root.p.lazy === true
+  // Listed from its end, it sits at the bottom and starts there, as search results above a bar do.
+  readonly property bool fromEnd: root.p.lazy === true && root.p.reverse === true
   readonly property real dp: root.widget ? root.widget.dp : 1
   readonly property var pad: L.padding(root.p.padding)
   readonly property real fixedW: L.fixedWidth(root.p)
@@ -129,11 +135,11 @@ Item {
     }
     sourceComponent: {
       switch (root.kind) {
-      case "Column": return root.p.scroll === true ? scrollColumnC : columnC
+      case "Column": return root.scrolls ? scrollColumnC : columnC
       case "Row": return root.p.wrap === true ? flowC : rowC
       case "Flow": return flowC
       case "Box": return boxC
-      case "Grid": return gridC
+      case "Grid": return root.p.lazy === true ? scrollGridC : gridC
       case "Text": return textC
       case "Button": return buttonC
       case "Progress": return progressC
@@ -256,7 +262,9 @@ Item {
     readonly property var kids: lin.owner.children_
     readonly property var p: lin.owner.p
     readonly property real gap: L.num(lin.p.gap, lin.horizontal ? 8 : 4) * lin.dp
-    readonly property var places: lin.kids.map(function(c) { return L.place(c, lin.horizontal ? "Row" : "Column") })
+    readonly property string kindHere: lin.horizontal ? "Row" : "Column"
+    function hugOf(c) { return L.hugFor(c, lin.kindHere, lin.owner.node, lin.owner.hugged) }
+    readonly property var places: lin.kids.map(function(c) { return L.place(c, lin.kindHere, lin.hugOf(c)) })
     readonly property var none: ({ fillW: false, fillH: false, prefW: -1, prefH: -1, stretchW: -1, stretchH: -1 })
     // A list that changed length is read here before `places` catches up.
     function placeOf(i) { return lin.places[i] || lin.none }
@@ -390,6 +398,7 @@ Item {
         onLoaded: {
           cell.item.widget = Qt.binding(function() { return lin.owner.widget })
           cell.item.node = Qt.binding(function() { return cell.child })
+          cell.item.hugged = Qt.binding(function() { return lin.hugOf(cell.child) })
         }
       }
     }
@@ -403,18 +412,50 @@ Item {
   Component {
     id: scrollColumnC
     Flickable {
+      id: flick
       implicitWidth: inner.implicitWidth
       implicitHeight: inner.implicitHeight
       contentWidth: width
       contentHeight: inner.implicitHeight
       clip: true
       boundsBehavior: Flickable.StopAtBounds
+      onContentHeightChanged: if (root.fromEnd) flick.contentY = Math.max(0, flick.contentHeight - flick.height)
+      onHeightChanged: if (root.fromEnd) flick.contentY = Math.max(0, flick.contentHeight - flick.height)
       Linear {
         id: inner
         owner: root
         horizontal: false
+        y: root.fromEnd ? Math.max(0, flick.height - inner.implicitHeight) : 0
         width: parent.width
         height: inner.implicitHeight
+      }
+    }
+  }
+
+  Component {
+    id: scrollGridC
+    Flickable {
+      id: gridFlick
+      implicitWidth: lazyGrid.implicitWidth
+      implicitHeight: lazyGrid.implicitHeight
+      contentWidth: width
+      contentHeight: lazyGrid.implicitHeight
+      clip: true
+      boundsBehavior: Flickable.StopAtBounds
+      onContentHeightChanged: if (root.fromEnd) gridFlick.contentY = Math.max(0, gridFlick.contentHeight - gridFlick.height)
+      onHeightChanged: if (root.fromEnd) gridFlick.contentY = Math.max(0, gridFlick.contentHeight - gridFlick.height)
+      GridLayout {
+        id: lazyGrid
+        y: root.fromEnd ? Math.max(0, gridFlick.height - lazyGrid.implicitHeight) : 0
+        width: parent.width
+        columns: Math.max(1, Math.round(L.num(root.p.columns, 2)))
+        columnSpacing: L.num(root.p.gap, 6) * root.dp
+        rowSpacing: L.num(root.p.gap, 6) * root.dp
+        uniformCellWidths: true
+        Repeater {
+          model: root.children_.length
+          delegate: Slot { owner: root; parentKind: "Grid" }
+        }
       }
     }
   }
@@ -452,6 +493,7 @@ Item {
           onLoaded: {
             flowSlot.item.widget = Qt.binding(function() { return root.widget })
             flowSlot.item.node = Qt.binding(function() { return flowSlot.child })
+            flowSlot.item.hugged = Qt.binding(function() { return L.hugFor(flowSlot.child, "Flow", root.node, root.hugged) })
           }
         }
       }
@@ -534,11 +576,13 @@ Item {
       readonly property real line: label.font.pixelSize * 1.17
       readonly property bool spanned: Array.isArray(root.p.spans)
       implicitWidth: label.implicitWidth
-      implicitHeight: Math.max(1, label.lineCount) * textBox.line
+      implicitHeight: Math.max(L.minLines(root.p), label.lineCount) * textBox.line
       Text {
         id: label
         width: parent.width
-        anchors.verticalCenter: parent.verticalCenter
+        // Centred in the lines it has; a box taller for minLines keeps the text at its top.
+        anchors.verticalCenter: parent.top
+        anchors.verticalCenterOffset: Math.max(1, label.lineCount) * textBox.line / 2
         textFormat: textBox.spanned ? Text.RichText : Text.PlainText
         text: textBox.spanned ? root.spansHtml(root.p.spans)
           : root.p.text === undefined || root.p.text === null ? "\u2026" : String(root.p.text)
@@ -709,6 +753,9 @@ Item {
         fillMode: root.p.fit === "cover" ? Image.PreserveAspectCrop
           : root.p.fit === "fill" ? Image.Stretch : Image.PreserveAspectFit
         visible: !root.p.tint
+        // What a screen reader says for it (owl 11).
+        Accessible.role: Accessible.Graphic
+        Accessible.name: root.p.label === undefined || root.p.label === null ? "" : String(root.p.label)
       }
       MultiEffect {
         anchors.fill: img
