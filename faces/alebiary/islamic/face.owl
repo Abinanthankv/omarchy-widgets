@@ -4,7 +4,7 @@ face "islamic" {
   meta {
     owl: 11
     description: "Islamic home screen face with multi-tab prayer times, prayer habit tracker, verse of the day, hadith of the day, weather, notifications, pinnable apps, and full localization"
-    version: "1.2"
+    version: "1.2.1"
     license: "MIT"
     category: "productivity"
   }
@@ -121,8 +121,8 @@ face "islamic" {
   let nextYear = reqMonth == 12 ? reqYear + 1 : reqYear
 
   let tuneStr = "0,${int(tuneMin)},0,${int(tuneMin)},${int(tuneMin)},${int(tuneMin)},0,${int(tuneMin)},0"
-  source cal = http(lat == null ? null : "https://api.aladhan.com/v1/calendar/${int(reqYear)}/${int(reqMonth)}?latitude=${enc(str(lat))}&longitude=${enc(str(lon))}&method=${enc(method)}&school=${enc(school)}&calendarMethod=MATHEMATICAL&tune=${enc(tuneStr)}&adjustment=${int(hijriAdj)}") every 1h timeout 15s json status
-  source nextCal = http(lat == null || reqDay < 25 ? null : "https://api.aladhan.com/v1/calendar/${int(nextYear)}/${int(nextMonth)}?latitude=${enc(str(lat))}&longitude=${enc(str(lon))}&method=${enc(method)}&school=${enc(school)}&calendarMethod=MATHEMATICAL&tune=${enc(tuneStr)}&adjustment=${int(hijriAdj)}") every 1h timeout 15s json status
+  source cal = http(lat == null ? null : "https://api.aladhan.com/v1/calendar/${int(reqYear)}/${int(reqMonth)}?latitude=${enc(str(lat))}&longitude=${enc(str(lon))}&method=${enc(method)}&school=${enc(school)}&calendarMethod=HJCoSA&tune=${enc(tuneStr)}") every 1h timeout 15s json status
+  source nextCal = http(lat == null || reqDay < 25 ? null : "https://api.aladhan.com/v1/calendar/${int(nextYear)}/${int(nextMonth)}?latitude=${enc(str(lat))}&longitude=${enc(str(lon))}&method=${enc(method)}&school=${enc(school)}&calendarMethod=HJCoSA&tune=${enc(tuneStr)}") every 1h timeout 15s json status
 
   let calList = lat != null && cal != null && cal.ok && cal.out.data != null ? cal.out.data : []
   let nextCalList = lat != null && nextCal != null && nextCal.ok && nextCal.out.data != null ? nextCal.out.data : []
@@ -442,13 +442,19 @@ face "islamic" {
     fmtTime(now, "EEEE, d MMMM yyyy", null, lang)
   let gregFormatted = isRtl ? "${rlm}${gregRaw}" : gregRaw
 
-  let hijriInfo = todayItem != null && todayItem.date != null ? todayItem.date.hijri : null
+  // The offset moves the date along the calendar, as a correction would: the Hijri date
+  // of a day `hijriAdj` away (Aladhan's HJCoSA ignores `adjustment`). Before the first
+  // fetched day, only the day number moves, within the month.
+  let hijriToday = todayItem != null && todayItem.date != null ? todayItem.date.hijri : null
+  let hijriShifted = todayIdx >= 0 && todayIdx + hijriAdj >= 0 ? first(drop(allDays, todayIdx + hijriAdj)) : null
+  let hijriInfo = hijriAdj == 0 ? hijriToday : hijriShifted != null && hijriShifted.date != null ? hijriShifted.date.hijri : hijriToday
+  let hijriDay = hijriAdj != 0 && hijriShifted == null && hijriToday != null && num(hijriToday.day) + hijriAdj >= 1 && num(hijriToday.day) + hijriAdj <= 29 ? str(floor(num(hijriToday.day)) + hijriAdj) : hijriInfo != null ? hijriInfo.day : ""
   // Prefix with Right-to-Left Mark (rlm) in Arabic/Urdu so "9 جمادى الأولى 1448 هـ" renders RTL from right to left
   let hijriFormatted = hijriInfo != null ? (
-    isRtl ? "${rlm}${hijriInfo.day} ${hijriInfo.month.ar} ${hijriInfo.year} هـ" :
-    dateFmt == "DD/MM/YYYY" ? "${pad(hijriInfo.day, 2, "0")}/${pad(hijriInfo.month.number, 2, "0")}/${hijriInfo.year} H (${hijriInfo.month.en})" :
-    dateFmt == "MM/DD/YYYY" ? "${pad(hijriInfo.month.number, 2, "0")}/${pad(hijriInfo.day, 2, "0")}/${hijriInfo.year} H (${hijriInfo.month.en})" :
-    "${hijriInfo.day} ${hijriInfo.month.en} ${hijriInfo.year} H"
+    isRtl ? "${rlm}${hijriDay} ${hijriInfo.month.ar} ${hijriInfo.year} هـ" :
+    dateFmt == "DD/MM/YYYY" ? "${pad(hijriDay, 2, "0")}/${pad(hijriInfo.month.number, 2, "0")}/${hijriInfo.year} H (${hijriInfo.month.en})" :
+    dateFmt == "MM/DD/YYYY" ? "${pad(hijriInfo.month.number, 2, "0")}/${pad(hijriDay, 2, "0")}/${hijriInfo.year} H (${hijriInfo.month.en})" :
+    "${hijriDay} ${hijriInfo.month.en} ${hijriInfo.year} H"
   ) : ""
 
   // Extract prayer timings and convert to minutes + 12h/24h formatted strings
@@ -767,7 +773,7 @@ face "islamic" {
   let visibleNotifItems = (notif.items ?? []).filter(i => !(isMorningAzkarDone && i.title == tr.morningNotifTitle) && !(isEveningAzkarDone && i.title == tr.eveningNotifTitle))
 
   // Auto-reset daily Azkar progress at the start of each new day
-  when todayDayIdx > 0 && azkarResetDay != todayDayIdx {
+  when zone != null && todayDayIdx > 0 && azkarResetDay != todayDayIdx {
     azkarCounts = {}
     azkarResetDay = todayDayIdx
   }
