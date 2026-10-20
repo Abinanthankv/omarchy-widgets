@@ -5,7 +5,7 @@ widget "bible" {
   meta {
     owl: 7
     description: "The NIV verse of the day. Tap for the full verse with copy and share. Needs no packages and keeps the last verse when offline."
-    version: "1.0"
+    version: "1.0.1"
     license: "MIT"
     category: "news"
   }
@@ -17,6 +17,9 @@ widget "bible" {
   let fresh = day.verse.details.text == null ? null : { text: trim(replace(day.verse.details.text, "\n", " ")), ref: day.verse.details.reference }
   let shown = fresh ?? last
   let long = len(shown.text ?? "") > 220
+  let size = long ? 13 : 16
+  // as many verse lines as fit between the header and the reference
+  let lines = max(2, floor((tileHeight - 70) / (size * 1.25)))
 
   // keep the last verse so the tile still has one offline
   on fresh.text { last = fresh }
@@ -30,7 +33,7 @@ widget "bible" {
       Text { text: fresh == null && last != null ? "last verse" : "verse of the day"; style: label; color: muted; weight: 1 }
       Text { text: "NIV"; style: label; color: accent; width: 32; align: end }
     }
-    Text { text: shown == null ? "…" : shown.text; style: body; fontSize: long ? 13 : 16; italic: true; maxLines: long ? 8 : 5; weight: 1 }
+    Text { text: shown == null ? "…" : shown.text; style: body; fontSize: size; italic: true; maxLines: lines; weight: 1 }
     Text { text: shown.ref ?? ""; style: label; color: accent; align: end }
   }
 
