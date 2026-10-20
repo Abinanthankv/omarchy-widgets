@@ -2,7 +2,7 @@ widget "fatcat" {
   meta {
     owl: 3
     description: "A gloriously chubby cat that loafs, purrs, naps, and demands snacks on your home screen"
-    version: "1.0"
+    version: "1.0.1"
     license: "MIT"
     category: "fun"
   }
@@ -47,6 +47,30 @@ widget "fatcat" {
     : "OH LAWD HE COMIN'"
 
   let weightLbs = 11 + round(snacks * 0.4, 1)
+
+  // Status line: one line when it fits, else two lines split at a " · " (the most even split), so
+  // nothing is dropped. A mono small cell is ~6.4 dp and the tile's padding ~30 dp: the portrait tile
+  // (197 dp) fits 26 cells a line and the landscape one (218 dp) 29. ♥︎ is two code points but one cell.
+  let statusCap = tileWidth != null ? floor((tileWidth - 30) / 6.4) : 99
+  let statusParts = cols != null && cols < 3 ?
+    [mood == "asleep" ? "zzz · ${chonkTier}"
+    : mood == "eating" ? "nom nom! ${weightLbs} lb"
+    : mood == "purring" ? "purr~ ♥︎${pets} · ${weightLbs} lb"
+    : mood == "dancing" ? "♪ ${lower(m.title ?? "music")}"
+    : mood == "hungry" ? "hungry · tap bowl"
+    : mood == "tired" ? "sleepy · ${bat.level}%"
+    : "${chonkTier} · ${weightLbs} lb"]
+    : mood == "asleep" ? ["zzz", "${chonkTier} (${weightLbs} lb)", "day ${day}"]
+    : mood == "eating" ? ["nom nom nom!", "treats: ${snacks}"]
+    : mood == "purring" ? ["purring~", "♥︎${pets} pets", "${chonkTier} (${weightLbs} lb)"]
+    : mood == "dancing" ? ["♪ ${lower(m.title ?? "groovin'")}", "${weightLbs} lb"]
+    : mood == "hungry" ? ["hungry", "fed ${ago} ago", "tap bowl!"]
+    : mood == "tired" ? ["sleepy loaf", "battery ${bat.level}%"]
+    : ["${chonkTier}", "${weightLbs} lb", "♥︎${pets}", "day ${day}"]
+  let statusOne = join(statusParts, " · ")
+  let statusSplits = range(1, len(statusParts)).map(k => [join(take(statusParts, k), " · "), join(drop(statusParts, k), " · ")])
+  let statusSplit = first(statusSplits.sortBy(l => max(len(replace(l[0], "♥︎", "♥")), len(replace(l[1], "♥︎", "♥")))))
+  let status = len(replace(statusOne, "♥︎", "♥")) <= statusCap || statusSplit == null ? statusOne : join(statusSplit, "\n")
 
   // Pixel art sprites: 22x15 cat loaf, 6x7 wagging tail, 9x5 food bowl, 7x7 fish treat.
   let catArt = [
@@ -292,22 +316,8 @@ widget "fatcat" {
       style: small
       color: muted
       align: center
-      maxLines: 1
-      text: cols != null && cols < 3 ?
-        (mood == "asleep" ? "zzz · ${chonkTier}"
-        : mood == "eating" ? "nom nom! ${weightLbs} lb"
-        : mood == "purring" ? "purr~ ♥︎${pets} · ${weightLbs} lb"
-        : mood == "dancing" ? "♪ ${lower(m.title ?? "music")}"
-        : mood == "hungry" ? "hungry · tap bowl"
-        : mood == "tired" ? "sleepy · ${bat.level}%"
-        : "${chonkTier} · ${weightLbs} lb")
-        : mood == "asleep" ? "zzz · ${chonkTier} (${weightLbs} lb) · day ${day}"
-        : mood == "eating" ? "nom nom nom! · treats: ${snacks}"
-        : mood == "purring" ? "purring~ · ♥︎${pets} pets · ${chonkTier} (${weightLbs} lb)"
-        : mood == "dancing" ? "♪ ${lower(m.title ?? "groovin'")} · ${weightLbs} lb"
-        : mood == "hungry" ? "hungry · fed ${ago} ago · tap bowl!"
-        : mood == "tired" ? "sleepy loaf · battery ${bat.level}%"
-        : "${chonkTier} · ${weightLbs} lb · ♥︎${pets} · day ${day}"
+      maxLines: 2
+      text: status
     }
   }
 }
