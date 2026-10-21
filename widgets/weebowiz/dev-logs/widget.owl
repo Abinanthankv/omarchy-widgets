@@ -1,7 +1,7 @@
 widget "DEV LOGS" {
   size: 3x4
   minSize: 2x2
-  meta { owl: 6; description: "Dev logs, Markdown project files and Linux diagnostics. Your coding agent writes log entries, explains errors and fixes them in a terminal."; version: "2.0.1"; license: "MIT"; category: "productivity" }
+  meta { owl: 6; description: "Dev logs, Markdown project files and Linux diagnostics. Your coding agent writes log entries, explains errors and fixes them in a terminal."; version: "2.0.2"; license: "MIT"; category: "productivity" }
   requires { pacman: ["python", "bash", "coreutils", "less", "micro"] }
   state language = "en" persist
   let zh = language == "zh"
@@ -132,6 +132,10 @@ Use DEV LOGS to log important development progress for this project. Save these 
   source found = cmd("if [ -n ${sh(query)} ] && [ -f ~/.local/bin/oma-devlogs ]; then python ~/.local/bin/oma-devlogs --lang ${sh(language)} search ${sh(folder)} ${sh(query)} ${sh(searchContent ? "content" : "name")}; else printf '{}'; fi") every 5m json status timeout 15s
   source archive = cmd("if [ -f ~/.local/bin/oma-devlogs ]; then python ~/.local/bin/oma-devlogs --lang ${sh(language)} history ${sh(day)} ${int(logOffset)} ${sh(project)}; else printf '{}'; fi") every 5m json status
   let desk = snapshot.out
+  // A tile taller than wide has room for more than three lines: the three newest logs when they
+  // fit (3 or more + 2 + 2 lines), else the latest one with as many lines as the height allows.
+  let tall = tileWidth != null && tileHeight != null && tileHeight > tileWidth * 1.2
+  let logLines = tall ? max(3, floor((tileHeight - 135) / 17)) : (rows < 3 ? 1 : 3)
   let listing = directory.out
   let hits = found.out
   let logs = archive.out
@@ -188,7 +192,16 @@ Use DEV LOGS to log important development progress for this project. Save these 
     }
     if !ready { Setup {} } else {
     Text { text: zh ? "${desk.notes ?? 0} 篇筆記 · ${desk.entries ?? 0} 條日誌" : "${desk.notes ?? 0} notes · ${desk.entries ?? 0} logs"; style: small; color: muted }
-    Text { text: snapshot.ok == false ? (zh ? "更新失敗，點擊查看" : "Update failed · tap to view") : (desk.latest != "" && desk.latest != null ? desk.latest : (zh ? "在設定中開啟 Agent 記錄教學" : "Open Settings for agent logging instructions")); style: small; maxLines: rows < 3 ? 1 : 3; weight: 1 }
+    if snapshot.ok != false && tall && logLines >= 7 && len(desk.recent ?? []) > 1 {
+      Column {
+        weight: 1
+        clip: true
+        gap: 10
+        for entry, i in desk.recent { Text { text: entry; style: small; maxLines: i == 0 ? max(3, logLines - 4) : 2; color: i == 0 ? foreground : muted } }
+      }
+    } else {
+      Text { text: snapshot.ok == false ? (zh ? "更新失敗，點擊查看" : "Update failed · tap to view") : (desk.latest != "" && desk.latest != null ? desk.latest : (zh ? "在設定中開啟 Agent 記錄教學" : "Open Settings for agent logging instructions")); style: small; maxLines: logLines; weight: 1 }
+    }
     Text { text: zh ? "系統錯誤 · ${errors.error_total ?? 0}" : "System errors · ${errors.error_total ?? 0}"; style: small; color: (errors.error_total ?? 0) > 0 ? yellow : muted; onTap: { tab = "errors"; refresh(); screen() } }
     Row {
       gap: 8
