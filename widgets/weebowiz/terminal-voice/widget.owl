@@ -1,12 +1,14 @@
 widget "Terminal Voice" {
   size: 3x4
   minSize: 3x4
-  meta { owl: 6; description: "Hear Codex or Claude replies, or a tmux terminal running any CLI, read aloud, even a task that finishes with the screen off. Pairs with Dictation to answer by voice."; version: "3.5"; license: "MIT"; category: "productivity" }
+  meta { owl: 6; description: "Hear Codex or Claude replies, or a tmux terminal running any CLI, read aloud, even a task that finishes with the screen off. Pairs with Dictation to answer by voice."; version: "3.5.1"; license: "MIT"; category: "productivity" }
   requires { pacman: ["python", "espeak-ng", "libpulse", "mpg123", "tmux", "curl", "util-linux"] }
   source uiLanguage = file("~/.config/omalauncher/voice-ui-language")
   source installed = file("~/.local/share/oma-voice/terminal-voice-version")
   source payloadVersion = file("~/.local/share/oma-voice/store-version")
   source setupState = file("~/.cache/oma-voice/setup-state")
+  // A short tile (landscape home screen) puts the buttons in one row so the text keeps its lines.
+  let short = tileHeight != null && tileHeight < 200
   let ready = installed == "3.5.6-a593ddbe" || (installed == "" && payloadVersion == "3.5.6-a593ddbe")
   let setupText = setupState == "installing" && !ready ? (uiLanguage == "zh" ? "安裝中，約需一分鐘…" : uiLanguage == "es" ? "Instalando, cerca de un minuto…" : uiLanguage == "de" ? "Installation läuft, etwa eine Minute…" : uiLanguage == "fr" ? "Installation, environ une minute…" : uiLanguage == "ja" ? "インストール中、約1分…" : uiLanguage == "ko" ? "설치 중, 약 1분…" : "Installing, about a minute…") : setupState == "failed" ? (uiLanguage == "zh" ? "安裝失敗，請查看 ~/.cache/oma-voice/setup.log" : uiLanguage == "es" ? "La instalación falló: consulta ~/.cache/oma-voice/setup.log" : uiLanguage == "de" ? "Installation fehlgeschlagen: siehe ~/.cache/oma-voice/setup.log" : uiLanguage == "fr" ? "Échec de l’installation : voir ~/.cache/oma-voice/setup.log" : uiLanguage == "ja" ? "インストール失敗：~/.cache/oma-voice/setup.log を確認" : uiLanguage == "ko" ? "설치 실패: ~/.cache/oma-voice/setup.log 확인" : "Setup failed: see ~/.cache/oma-voice/setup.log") : installed == "" ? (uiLanguage == "zh" ? "首次使用：把播報與聽寫程式寫入 ~/.local，並下載 edge-tts 線上語音。" : uiLanguage == "es" ? "Primer uso: escribe los programas de voz y dictado en ~/.local y descarga edge-tts para la voz en línea." : uiLanguage == "de" ? "Erste Nutzung: schreibt die Programme für Sprachausgabe und Diktat nach ~/.local und lädt edge-tts für die Online-Stimme." : uiLanguage == "fr" ? "Première utilisation : écrit les programmes de voix et de dictée dans ~/.local et télécharge edge-tts pour la voix en ligne." : uiLanguage == "ja" ? "初回：読み上げと音声入力のプログラムを ~/.local に書き込み、オンライン音声用の edge-tts をダウンロードします。" : uiLanguage == "ko" ? "처음 사용: 음성 읽기와 받아쓰기 프로그램을 ~/.local 에 쓰고 온라인 음성용 edge-tts 를 내려받습니다." : "First use: writes the voice and dictation programs to ~/.local and downloads edge-tts for online speech.") : (uiLanguage == "zh" ? "程式有新版，更新後才能使用。" : uiLanguage == "es" ? "Hay una actualización de los programas; instálala para continuar." : uiLanguage == "de" ? "Für die Programme gibt es ein Update; zum Fortfahren installieren." : uiLanguage == "fr" ? "Les programmes ont une mise à jour ; installez-la pour continuer." : uiLanguage == "ja" ? "プログラムの更新があります。続けるには更新してください。" : uiLanguage == "ko" ? "프로그램 업데이트가 있습니다. 계속하려면 설치하세요." : "The programs have an update; install it to continue.")
   source service = cmd("if [ -f ~/.local/share/oma-voice/oma_voice.py ]; then python ~/.local/share/oma-voice/oma_voice.py ensure; fi") every 30s status
@@ -25,6 +27,9 @@ widget "Terminal Voice" {
     if !ready {
       Text { text: (uiLanguage == "zh" ? "終端播報" : uiLanguage == "es" ? "VOZ DEL TERMINAL" : uiLanguage == "de" ? "TERMINAL-STIMME" : uiLanguage == "fr" ? "VOIX DU TERMINAL" : uiLanguage == "ja" ? "ターミナル読み上げ" : uiLanguage == "ko" ? "터미널 음성" : "TERMINAL VOICE"); style: label; color: accent }
       Text { text: setupText; style: small; maxLines: 8; weight: 1; color: setupState == "failed" ? red : muted }
+      Grid {
+      columns: short ? 2 : 1
+      gap: 6
       Button { fill: width; height: 40; text: installed == "" ? (uiLanguage == "zh" ? "安裝" : uiLanguage == "es" ? "Instalar" : uiLanguage == "de" ? "Einrichten" : uiLanguage == "fr" ? "Installer" : uiLanguage == "ja" ? "インストール" : uiLanguage == "ko" ? "설치" : "Set up") : (uiLanguage == "zh" ? "更新" : uiLanguage == "es" ? "Actualizar" : uiLanguage == "de" ? "Aktualisieren" : uiLanguage == "fr" ? "Mettre à jour" : uiLanguage == "ja" ? "更新" : uiLanguage == "ko" ? "업데이트" : "Update"); onTap: run("""
 # Writes the voice and dictation programs kept in this widget into ~/.local, then
 # makes a Python environment for edge-tts (online speech). Log: ~/.cache/oma-voice/setup.log
@@ -2071,21 +2076,34 @@ printf '%s' '3.5.6-a593ddbe' > "$HOME/.local/share/oma-voice/terminal-voice-vers
 say done
 """) }
       Button { fill: width; height: 40; text: (uiLanguage == "zh" ? "詳情" : uiLanguage == "es" ? "Detalles" : uiLanguage == "de" ? "Details" : uiLanguage == "fr" ? "Détails" : uiLanguage == "ja" ? "詳細" : uiLanguage == "ko" ? "상세" : "Details"); onTap: screen() }
+      }
     } else {
     Text { text: (uiLanguage == "zh" ? "終端播報" : uiLanguage == "es" ? "VOZ DEL TERMINAL" : uiLanguage == "de" ? "TERMINAL-STIMME" : uiLanguage == "fr" ? "VOIX DU TERMINAL" : uiLanguage == "ja" ? "ターミナル読み上げ" : uiLanguage == "ko" ? "터미널 음성" : "TERMINAL VOICE"); style: label; color: accent }
     Text { text: voice.source == "terminal" ? (uiLanguage == "zh" ? "來源：${voice.source_name ?? '終端'}" : uiLanguage == "es" ? "Fuente: ${voice.source_name ?? 'Terminal'}" : uiLanguage == "de" ? "Quelle: ${voice.source_name ?? 'Terminal'}" : uiLanguage == "fr" ? "Source : ${voice.source_name ?? 'Terminal'}" : uiLanguage == "ja" ? "ソース：${voice.source_name ?? 'ターミナル'}" : uiLanguage == "ko" ? "소스: ${voice.source_name ?? '터미널'}" : "Source: ${voice.source_name ?? 'Terminal'}") : voice.source == "claude" ? (uiLanguage == "zh" ? "來源：Claude 會話" : uiLanguage == "es" ? "Fuente: chat de Claude" : uiLanguage == "de" ? "Quelle: Claude-Chat" : uiLanguage == "fr" ? "Source : chat Claude" : uiLanguage == "ja" ? "ソース：Claude チャット" : uiLanguage == "ko" ? "소스: Claude 채팅" : "Source: Claude chat") : (uiLanguage == "zh" ? "來源：Codex 會話" : uiLanguage == "es" ? "Fuente: chat de Codex" : uiLanguage == "de" ? "Quelle: Codex-Chat" : uiLanguage == "fr" ? "Source : chat Codex" : uiLanguage == "ja" ? "ソース：Codex チャット" : uiLanguage == "ko" ? "소스: Codex 채팅" : "Source: Codex chat"); style: small; color: accent }
     Text { text: statusText; style: small; maxLines: 2; color: offline ? yellow : muted }
-    Text { text: replyTime; style: small; color: muted }
-    Text { text: voice.summary == "" || voice.summary == null ? (uiLanguage == "zh" ? "選擇 Codex 會話或連接 tmux 終端。" : uiLanguage == "es" ? "Elige un chat de Codex o conecta un terminal tmux." : uiLanguage == "de" ? "Codex-Chat wählen oder ein tmux-Terminal verbinden." : uiLanguage == "fr" ? "Choisissez un chat Codex ou connectez un terminal tmux." : uiLanguage == "ja" ? "Codex チャットを選ぶか、tmux ターミナルを接続してください。" : uiLanguage == "ko" ? "Codex 채팅을 고르거나 tmux 터미널을 연결하세요." : "Choose a Codex chat or connect a tmux terminal.") : voice.summary; style: small; maxLines: 4; weight: 1 }
-    Row {
-      gap: 4
-      Button { text: (uiLanguage == "zh" ? "播放" : uiLanguage == "es" ? "Leer" : uiLanguage == "de" ? "Vorlesen" : uiLanguage == "fr" ? "Lire" : uiLanguage == "ja" ? "再生" : uiLanguage == "ko" ? "재생" : "Play"); weight: 1; height: 40; onTap: run("python ~/.local/share/oma-voice/oma_voice.py replay") }
-      Button { text: (uiLanguage == "zh" ? "停止" : uiLanguage == "es" ? "Parar" : uiLanguage == "de" ? "Stopp" : uiLanguage == "fr" ? "Arrêter" : uiLanguage == "ja" ? "停止" : uiLanguage == "ko" ? "정지" : "Stop"); weight: 1; height: 40; onTap: run("python ~/.local/share/oma-voice/oma_voice.py stop") }
+    if !short {
+      Text { text: replyTime; style: small; color: muted }
     }
-    Row {
-      gap: 4
-      Button { text: (uiLanguage == "zh" ? "同步" : uiLanguage == "es" ? "Sync" : uiLanguage == "de" ? "Sync" : uiLanguage == "fr" ? "Sync" : uiLanguage == "ja" ? "同期" : uiLanguage == "ko" ? "동기화" : "Sync"); weight: 1; height: 40; onTap: run("python ~/.local/share/oma-voice/oma_voice.py refresh") }
-      Button { text: (uiLanguage == "zh" ? "詳情" : uiLanguage == "es" ? "Detalles" : uiLanguage == "de" ? "Details" : uiLanguage == "fr" ? "Détails" : uiLanguage == "ja" ? "詳細" : uiLanguage == "ko" ? "상세" : "Details"); weight: 1; height: 40; onTap: screen() }
+    Text { text: voice.summary == "" || voice.summary == null ? (uiLanguage == "zh" ? "選擇 Codex 會話或連接 tmux 終端。" : uiLanguage == "es" ? "Elige un chat de Codex o conecta un terminal tmux." : uiLanguage == "de" ? "Codex-Chat wählen oder ein tmux-Terminal verbinden." : uiLanguage == "fr" ? "Choisissez un chat Codex ou connectez un terminal tmux." : uiLanguage == "ja" ? "Codex チャットを選ぶか、tmux ターミナルを接続してください。" : uiLanguage == "ko" ? "Codex 채팅을 고르거나 tmux 터미널을 연결하세요." : "Choose a Codex chat or connect a tmux terminal.") : voice.summary; style: small; maxLines: 4; weight: 1 }
+    // Tapping the tile opens the details, so a short tile drops the Details button.
+    if short {
+      Row {
+        gap: 4
+        Button { text: (uiLanguage == "zh" ? "播放" : uiLanguage == "es" ? "Leer" : uiLanguage == "de" ? "Vorlesen" : uiLanguage == "fr" ? "Lire" : uiLanguage == "ja" ? "再生" : uiLanguage == "ko" ? "재생" : "Play"); weight: 1; height: 40; onTap: run("python ~/.local/share/oma-voice/oma_voice.py replay") }
+        Button { text: (uiLanguage == "zh" ? "停止" : uiLanguage == "es" ? "Parar" : uiLanguage == "de" ? "Stopp" : uiLanguage == "fr" ? "Arrêter" : uiLanguage == "ja" ? "停止" : uiLanguage == "ko" ? "정지" : "Stop"); weight: 1; height: 40; onTap: run("python ~/.local/share/oma-voice/oma_voice.py stop") }
+        Button { text: (uiLanguage == "zh" ? "同步" : uiLanguage == "es" ? "Sync" : uiLanguage == "de" ? "Sync" : uiLanguage == "fr" ? "Sync" : uiLanguage == "ja" ? "同期" : uiLanguage == "ko" ? "동기화" : "Sync"); weight: 1; height: 40; onTap: run("python ~/.local/share/oma-voice/oma_voice.py refresh") }
+      }
+    } else {
+      Row {
+        gap: 4
+        Button { text: (uiLanguage == "zh" ? "播放" : uiLanguage == "es" ? "Leer" : uiLanguage == "de" ? "Vorlesen" : uiLanguage == "fr" ? "Lire" : uiLanguage == "ja" ? "再生" : uiLanguage == "ko" ? "재생" : "Play"); weight: 1; height: 40; onTap: run("python ~/.local/share/oma-voice/oma_voice.py replay") }
+        Button { text: (uiLanguage == "zh" ? "停止" : uiLanguage == "es" ? "Parar" : uiLanguage == "de" ? "Stopp" : uiLanguage == "fr" ? "Arrêter" : uiLanguage == "ja" ? "停止" : uiLanguage == "ko" ? "정지" : "Stop"); weight: 1; height: 40; onTap: run("python ~/.local/share/oma-voice/oma_voice.py stop") }
+      }
+      Row {
+        gap: 4
+        Button { text: (uiLanguage == "zh" ? "同步" : uiLanguage == "es" ? "Sync" : uiLanguage == "de" ? "Sync" : uiLanguage == "fr" ? "Sync" : uiLanguage == "ja" ? "同期" : uiLanguage == "ko" ? "동기화" : "Sync"); weight: 1; height: 40; onTap: run("python ~/.local/share/oma-voice/oma_voice.py refresh") }
+        Button { text: (uiLanguage == "zh" ? "詳情" : uiLanguage == "es" ? "Detalles" : uiLanguage == "de" ? "Details" : uiLanguage == "fr" ? "Détails" : uiLanguage == "ja" ? "詳細" : uiLanguage == "ko" ? "상세" : "Details"); weight: 1; height: 40; onTap: screen() }
+      }
     }
     }
   }
