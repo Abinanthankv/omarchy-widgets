@@ -1,7 +1,7 @@
 widget "tailscale" {
   size: 3x3
   minSize: 2x2
-  meta { owl: 6; description: "Whether this phone's Tailscale VPN is on, its exit node and public IP (ipinfo.io), and your tailnet's devices via the Tailscale API. Approve exit nodes from the device list"; version: "1.0"; license: "MIT"; category: "system" }
+  meta { owl: 6; description: "Whether this phone's Tailscale VPN is on, its exit node and public IP (ipinfo.io), and your tailnet's devices via the Tailscale API. Approve exit nodes from the device list"; version: "1.0.1"; license: "MIT"; category: "system" }
 
   requires { pacman: ["iproute2", "iputils", "gawk", "curl"] }
 
@@ -72,6 +72,9 @@ widget "tailscale" {
 
   let problem = !hasKey ? "add an API key" : api == null ? null : rejected ? "API key rejected" : !api.ok ? "can't reach the API (${api.code})" : null
 
+  // Short tiles (landscape 3x3 is ~158dp tall) have no room for a separate "via" line while the exit line shows.
+  let compact = tileHeight < 180
+
   onTap: screen()
 
   component Dot(on) {
@@ -79,7 +82,7 @@ widget "tailscale" {
   }
 
   Column {
-    gap: 6
+    gap: compact ? 4 : 6
     fill: true
     Row {
       align: center
@@ -89,9 +92,9 @@ widget "tailscale" {
     Text { text: vpnOn ? "connected" : needPick ? "which?" : "off"; style: title; color: vpnOn ? green : muted }
     Text { text: vpnOn ? myIp : needPick ? "tap: mark this phone" : "VPN not running"; style: small; font: mono; color: vpnOn ? foreground : muted }
     if vpnOn {
-      Text { text: "exit: ${exitLabel}"; style: small; color: exitIp != "" ? accent : muted; maxLines: 1 }
+      Text { text: "exit: ${exitLabel}" + (compact && pub.city != null ? " · ${pub.city}" : ""); style: small; color: exitIp != "" ? accent : muted; maxLines: 1 }
     }
-    Text { text: pub.city == null ? "" : "via ${pub.city}, ${pub.country}"; style: small; color: muted; maxLines: 1; visible: pub.city != null }
+    Text { text: pub.city == null ? "" : "via ${pub.city}, ${pub.country}"; style: small; color: muted; maxLines: 1; visible: pub.city != null && !(compact && vpnOn) }
     Spacer { weight: 1 }
     if problem != null {
       Text { text: problem; style: small; color: hasKey ? red : yellow; maxLines: 2 }
