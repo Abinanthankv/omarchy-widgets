@@ -6,7 +6,7 @@ widget "LCD Digital Clock" {
   meta {
     owl: 5
     description: "A retro seven-segment LCD clock with authentic chamfered segments, system language detection, and clean calculator typography."
-    version: "2.0"
+    version: "2.0.1"
     author: "Madmasx"
     license: "MIT"
     category: "time"
@@ -101,13 +101,20 @@ widget "LCD Digital Clock" {
   let segOn = mix(accent, foreground, 0.15)
   let segOff = alpha(segOn, 0.07)
 
+  // A tile taller than wide (landscape home screen) puts the seconds on a second line under H:MM.
+  let tall = tileWidth != null && tileHeight != null && tileHeight > tileWidth * 1.3
+
   onTap: screen()
 
   Canvas {
-    let sc = min(width / 1.75, height)
-    let ox = (width - 1.75 * sc) / 2
-    let oy = (height - sc) / 2
-    let W = 1.75 * sc
+    // tall: digit height dh = 0.32 * sc fits H:MM (2.85 dh) in 86% of the width
+    let tallLines = showSeconds ? 2.3 : 1
+    let tallSc = min(0.86 * width / 2.85, height / (tallLines + 1.25)) / 0.32
+    let sc = tall ? tallSc : min(width / 1.75, height)
+    let ts = tall ? min(sc, width / 1.75 * 1.15) : sc
+    let ox = tall ? 0 : (width - 1.75 * sc) / 2
+    let oy = tall ? (height - 0.32 * sc * tallLines - 0.36 * ts) / 2 - 0.16 * sc : (height - sc) / 2
+    let W = tall ? width : 1.75 * sc
 
     if sc > 0 {
       let dh = 0.32 * sc
@@ -127,14 +134,15 @@ widget "LCD Digital Clock" {
 
       let groupW = 2 * dw + dgap
       let hourGroupW = twoHour ? groupW : dw
-      let total = showSeconds
+      let total = showSeconds && !tall
         ? (hourGroupW + colon + groupW + colon + groupW)
         : (hourGroupW + colon + groupW)
       let startX = ox + (W - total) / 2
 
       let hourX = startX
       let minX = startX + hourGroupW + colon
-      let secX = minX + groupW + colon
+      let secX = tall ? ox + (W - groupW) / 2 : minX + groupW + colon
+      let secY = tall ? dtop + 1.3 * dh : dtop
 
       let hourCells = twoHour
         ? [ { ch: h1, x: hourX, y: dtop, w: dw, h: dh },
@@ -143,8 +151,8 @@ widget "LCD Digital Clock" {
       let minCells = [ { ch: m1, x: minX, y: dtop, w: dw, h: dh },
                        { ch: m2, x: minX + dw + dgap, y: dtop, w: dw, h: dh } ]
       let secCells = showSeconds
-        ? [ { ch: s1, x: secX, y: dtop, w: dw, h: dh },
-            { ch: s2, x: secX + dw + dgap, y: dtop, w: dw, h: dh } ]
+        ? [ { ch: s1, x: secX, y: secY, w: dw, h: dh },
+            { ch: s2, x: secX + dw + dgap, y: secY, w: dw, h: dh } ]
         : []
 
       // ================= Puntos del separador (Colon) =================
@@ -155,7 +163,7 @@ widget "LCD Digital Clock" {
         rect(cxa, cya - dh * 0.18 - dot / 2, dot, dot, radius: dot * 0.2, fill: segOn)
         rect(cxa, cya + dh * 0.18 - dot / 2, dot, dot, radius: dot * 0.2, fill: segOn)
       }
-      if showSeconds {
+      if showSeconds && !tall {
         let cxb = minX + groupW + colon / 2 - dot / 2
         rotate(tilt, cxb + dot / 2, cya) {
           rect(cxb, cya - dh * 0.18 - dot / 2, dot, dot, radius: dot * 0.2, fill: segOn)
@@ -165,8 +173,8 @@ widget "LCD Digital Clock" {
 
       // ================= Indicador AM / PM =================
       if !use24h {
-        let amPmX = ox + (W + total) / 2 + 0.024 * sc
-        text(amPm, amPmX, dtop + dh * 0.28, size: 0.045 * sc, align: start, bold: true, color: alpha(segOn, 0.75))
+        let amPmX = tall && showSeconds ? secX + groupW + 0.024 * sc : ox + (W + total) / 2 + 0.024 * sc
+        text(amPm, amPmX, (tall && showSeconds ? secY : dtop) + dh * 0.28, size: 0.045 * sc, align: start, bold: true, color: alpha(segOn, 0.75))
       }
 
       // ================= Dígitos LCD biselados estilo calculadora =================
@@ -252,20 +260,21 @@ widget "LCD Digital Clock" {
       }
 
       // ================= Líneas de Fecha y Clima =================
-      let dateY = oy + 0.605 * sc
-      let wxY = oy + 0.795 * sc
+      let textTop = tall ? (showSeconds ? secY : dtop) + dh - 0.48 * ts : oy
+      let dateY = textTop + 0.605 * ts
+      let wxY = textTop + 0.795 * ts
 
       if textStyle == "clean" {
         // Tipografía monospaciada digital limpia estilo pantalla calculadora
-        text(dateStr, ox + W / 2, dateY, size: 0.076 * sc, align: center, bold: true, color: alpha(segOn, 0.88))
+        text(dateStr, ox + W / 2, dateY, size: 0.076 * ts, align: center, bold: true, color: alpha(segOn, 0.88))
         if wxStr != null {
-          text(wxStr, ox + W / 2, wxY, size: 0.064 * sc, align: center, color: alpha(segOn, 0.80))
+          text(wxStr, ox + W / 2, wxY, size: 0.064 * ts, align: center, color: alpha(segOn, 0.80))
         }
       } else {
         // Modo 7-segmentos clásico optimizado
         let segLines = [
-          { t: dateStr, cy: dateY, hmax: 0.115 * sc, maxw: 0.86 * W, col: alpha(segOn, 0.85) },
-          { t: wxStr ?? "", cy: wxY, hmax: 0.098 * sc, maxw: 0.92 * W, col: alpha(segOn, 0.80) }
+          { t: dateStr, cy: dateY, hmax: 0.115 * ts, maxw: 0.86 * W, col: alpha(segOn, 0.85) },
+          { t: wxStr ?? "", cy: wxY, hmax: 0.098 * ts, maxw: 0.92 * W, col: alpha(segOn, 0.80) }
         ]
 
         let letters = ["a", "b", "c", "d", "e", "f", "g"]
