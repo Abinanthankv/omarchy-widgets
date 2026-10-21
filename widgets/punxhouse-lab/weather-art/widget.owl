@@ -2,7 +2,7 @@ widget "weather art" {
   meta {
     owl: 7
     description: "Live weather drawn as intricate ASCII art that follows the latitude: alpine lakes, deserts, tropics, arctic nights, skylines and forests. Tap the tile for settings, forecasts and a few secrets."
-    version: "2.2"
+    version: "2.3"
     license: "MIT"
     category: "world"
   }
@@ -804,7 +804,7 @@ widget "weather art" {
           gap: 1
           weight: 1
           Text { text: data == null ? "looking up…" : desc; style: label; color: foreground; maxLines: 1 }
-          Text { text: data == null ? "" : "feels ${round(feels)}° · ${round(hum)}% hum"; style: label; color: muted; maxLines: 1 }
+          Text { text: data == null ? "" : "feels ${round(feels)}° · ${round(hum)}%${tileWidth < 240 ? "" : " hum"}"; style: label; color: muted; maxLines: 1 }
           Text { text: data == null ? "" : "${blowsRight ? "→" : "←"} ${windDir} ${round(windK)} km/h"; style: label; color: muted; maxLines: 1; onTap: { fahrenheit = !fahrenheit } }
         }
         Text { text: "menu ›"; style: label; color: accent; width: 64; maxLines: 1; onTap: screen() }
