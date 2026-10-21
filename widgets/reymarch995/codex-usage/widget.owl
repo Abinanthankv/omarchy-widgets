@@ -1,5 +1,5 @@
 widget "codex usage" {
-  meta { description: "Reads local Codex session events to show remaining 5-hour and weekly limits with reset times"; version: "1.0"; license: "MIT"; category: "dev" }
+  meta { description: "Reads local Codex session events to show remaining 5-hour and weekly limits with reset times"; version: "1.0.1"; license: "MIT"; category: "dev" }
   size: 3x2
   minSize: 3x2
 
@@ -24,27 +24,30 @@ widget "codex usage" {
     fi
     now=$(date +%s)
     window_data() {
-      local used=$1 reset=$2 full_format=$3 short_format=$4
+      local used=$1 reset=$2 full_format=$3 short_format=$4 tiny_format=${5:-$4}
       if [ "${reset%.*}" -le "$now" ]; then
-        printf '0\tfull\tfull\n'
+        printf '0\tfull\tfull\tfull\n'
       else
-        printf '%s\t%s\t%s\n' "$used" \
+        printf '%s\t%s\t%s\t%s\n' "$used" \
           "$(date -d "@$reset" "$full_format")" \
-          "$(date -d "@$reset" "$short_format")"
+          "$(date -d "@$reset" "$short_format")" \
+          "$(date -d "@$reset" "$tiny_format")"
       fi
     }
-    IFS=$'\t' read -r five_used five_at five_time <<< "$(window_data "$five_used" "$five_reset" '+%a, %b %-d · %H:%M' '+%H:%M')"
-    IFS=$'\t' read -r week_used week_at week_short <<< "$(window_data "$week_used" "$week_reset" '+%a, %b %-d · %H:%M' '+%b %-d %H:%M')"
+    IFS=$'\t' read -r five_used five_at five_time _ <<< "$(window_data "$five_used" "$five_reset" '+%a, %b %-d · %H:%M' '+%H:%M')"
+    IFS=$'\t' read -r week_used week_at week_short week_day <<< "$(window_data "$week_used" "$week_reset" '+%a, %b %-d · %H:%M' '+%b %-d %H:%M' '+%a %H:%M')"
     jq -nc --argjson five_used "$five_used" --argjson week_used "$week_used" \
-      --arg five_at "$five_at" --arg five_time "$five_time" --arg week_at "$week_at" --arg week_short "$week_short" \
-      '{ok:true, five_used:$five_used, five_at:$five_at, five_time:$five_time, week_used:$week_used, week_at:$week_at, week_short:$week_short}'
+      --arg five_at "$five_at" --arg five_time "$five_time" --arg week_at "$week_at" --arg week_short "$week_short" --arg week_day "$week_day" \
+      '{ok:true, five_used:$five_used, five_at:$five_at, five_time:$five_time, week_used:$week_used, week_at:$week_at, week_short:$week_short, week_day:$week_day}'
   """) every 1m json timeout 15s
 
   let fiveUsed = limits.ok ? limits.five_used : null
   let weekUsed = limits.ok ? limits.week_used : null
   let compact = cols == null || cols < 3 || rows == null || rows < 3
   let fiveReset = compact ? limits.five_time : limits.five_at
-  let weekReset = compact ? limits.week_short : limits.week_at
+  // A narrow tile (landscape) can't fit the date: the weekday is enough within a week.
+  let narrow = tileWidth != null && tileWidth < 170
+  let weekReset = !compact ? limits.week_at : narrow && limits.week_day != null ? limits.week_day : limits.week_short
 
   component LimitDetails(used, reset, compact = false) {
     Column {
