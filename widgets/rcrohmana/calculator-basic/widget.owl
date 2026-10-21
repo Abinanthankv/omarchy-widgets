@@ -21,7 +21,7 @@ widget "calculator_basic" {
   size: 4x6
   minSize: 3x5
   padding: 10
-  meta { owl: 7; description: "A standard calculator with brackets that keeps the whole expression on the display (3 × (2 + 1)) with a live result, × ÷ before + −; swipe left on DEL or the display to clear"; version: "1.0"; license: "MIT"; author: "rcrohmana"; category: "productivity" }
+  meta { owl: 7; description: "A standard calculator with brackets that keeps the whole expression on the display (3 × (2 + 1)) with a live result, × ÷ before + −; swipe left on DEL or the display to clear"; version: "1.0.1"; license: "MIT"; author: "rcrohmana"; category: "productivity" }
 
   // No shell: the expression is a list of tokens ("12", "×", "(", ")", "-3"; a lone "-"
   // is a minus waiting for its number or bracket), evaluated in the `on press` trigger.
@@ -216,6 +216,9 @@ widget "calculator_basic" {
   let BLOCK = ["#####", "#####", "#####", "#####", "#####", "#####", "#####"]
   let lit = done && !ok ? red : done ? bright_green : green
   let lcdH = 96
+  // a wide tile (landscape home screen) puts the LCD beside the keypad instead of above it,
+  // so the keys keep their height instead of shrinking to thin strips
+  let wide = tileWidth != null && tileHeight != null && tileWidth > tileHeight * 1.3
 
   // a key, its label in the LCD's dot-matrix font
   component Key(k, label = "", tint = foreground, bg = alpha(foreground, 0.08), swipe = false, hint = "") {
@@ -263,10 +266,8 @@ widget "calculator_basic" {
   let opBg = alpha(accent, 0.18)
 
 
-  Column {
-    gap: 8
-    fill: true
-
+  // the display, h dp tall
+  component Lcd(h) {
     // display
     Row {
       fill: width
@@ -286,7 +287,7 @@ widget "calculator_basic" {
       // a pocket calculator; tap it to copy the result
       Box {
         weight: 1
-        height: lcdH
+        height: h
         radius: 6 * corners
         background: alpha(green, 0.07)
         border: 1
@@ -348,7 +349,10 @@ widget "calculator_basic" {
         }
       }
     }
+  }
 
+  // the keypad
+  component Pad() {
     Column {
       gap: 6
       weight: 1
@@ -372,6 +376,23 @@ widget "calculator_basic" {
         Key { k: "."; weight: 1 }
         Key { k: "="; tint: background; bg: accent; weight: 1 }
       }
+    }
+  }
+
+  Column {
+    gap: 8
+    fill: true
+    if wide {
+      Row {
+        gap: 8
+        weight: 1
+        fill: width
+        Lcd { h: tileHeight - 20; weight: 1 }
+        Pad { weight: 1.3 }
+      }
+    } else {
+      Lcd { h: lcdH }
+      Pad { weight: 1 }
     }
   }
 
