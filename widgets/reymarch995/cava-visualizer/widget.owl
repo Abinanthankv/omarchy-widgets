@@ -1,5 +1,5 @@
 widget "android-cava-visualizer" {
-  meta { owl: 6; description: "Visualize Android internal audio with CAVA via the WiFi Audio Streaming app's HTTP stream"; version: "1.0"; license: "MIT"; category: "fun" }
+  meta { owl: 6; description: "Visualize Android internal audio with CAVA via the WiFi Audio Streaming app's HTTP stream"; version: "1.0.1"; license: "MIT"; category: "fun" }
   size: 6x2
   minSize: 3x1
 
@@ -262,8 +262,19 @@ while not stopping:
         }
       }
       if !paused && !audible {
-        text(frame != null && frame.message != null ? frame.message : "waiting for audio",
-             width / 2, height / 2, size: 13, align: center, color: foreground)
+        let msg = frame != null && frame.message != null ? str(frame.message) : "waiting for audio"
+        // A narrow tile (landscape) can't fit the line at 13sp: split it in two and shrink if still needed.
+        if len(msg) * 13 * 0.6 <= width - 8 {
+          text(msg, width / 2, height / 2, size: 13, align: center, color: foreground)
+        } else {
+          let ws = words(msg)
+          let half = ceil(len(ws) / 2)
+          let l1 = join(take(ws, half), " ")
+          let l2 = join(drop(ws, half), " ")
+          let fs = clamp((width - 8) / (max(len(l1), len(l2)) * 0.6), 8, 13)
+          text(l1, width / 2, height / 2 - fs * 0.65, size: fs, align: center, color: foreground)
+          text(l2, width / 2, height / 2 + fs * 0.65, size: fs, align: center, color: foreground)
+        }
       }
     }
 
