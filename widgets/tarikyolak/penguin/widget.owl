@@ -4,9 +4,9 @@ widget "penguin" {
   meta {
     owl: 3
     description: "A cute pixel-art penguin pet. Hatch it, feed it fish, pet it, and watch it sleep at night or dance to music. Age and progress are saved automatically."
-    version: "1.0"
+    version: "1.0.1"
     license: "MIT"
-    category: "fun"
+    category: "pets"
   }
 
   size: 2x2
@@ -80,11 +80,11 @@ widget "penguin" {
   let fishArt = ["..c..", ".cccd", "ccccc", ".cccd", "..c.."]
 
   let pal = {
-    p: #171B25,
+    p: mix(foreground, background, 0.45),
     w: #FFFFFF,
-    e: #111111,
+    e: mix(foreground, background, 0.15),
     k: #FF9900,
-    f: #171B25,
+    f: mix(foreground, background, 0.45),
     b: #FF9900,
     s: #CDEFFF,
     h: #FF6384,
