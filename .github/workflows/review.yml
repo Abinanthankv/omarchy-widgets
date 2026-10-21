@@ -23,7 +23,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Tools
-        run: pacman -Syu --noconfirm --needed git jre-openjdk-headless >/dev/null
+        run: pacman -Syu --noconfirm --needed git diffutils jre-openjdk-headless >/dev/null
 
       # The base branch as it is now: this workflow, owl.txt and tools/owl.jar are the reviewed
       # ones, not the pull request's, and the newest, even for a branch made before
