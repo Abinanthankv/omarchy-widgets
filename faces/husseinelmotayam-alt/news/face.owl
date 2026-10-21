@@ -1,6 +1,6 @@
 face "news" {
   page: 0
-  meta { owl: 11; description: "Google News as a page of its own: headlines with pictures, the whole story with its pictures in a reader, and settings for sections, keywords, sources and refresh"; version: "1.0"; license: "MIT"; category: "news" }
+  meta { owl: 11; description: "Google News as a page of its own: headlines with pictures, the whole story with its pictures in a reader, and settings for sections, keywords, sources and refresh"; version: "1.1"; license: "MIT"; category: "news" }
   requires { pacman: ["python", "python-lxml", "python-readability-lxml"] }
 
   // The face carries its own fetcher: the helper below is written to ~/.cache/news/owl-news on the first
@@ -22,14 +22,12 @@ face "news" {
                              in the background
   owl-news toggle KEY ITEM   add ITEM to the list setting KEY, or take it out if it's there
   owl-news add KEY ITEM, owl-news remove KEY ITEM
-  owl-news decode            (run in the background by update) publisher addresses for the stories, and
-                             pictures for the ones Google gave none
 
 The settings live in ~/.config/omalauncher/news.json, so every device reads the same news. Stories come from the RSS feeds of the chosen Google News sections and from a Google News
 search per keyword to include, mixed in turn; the pictures from the sections' web pages, matched by
 article id. Each feed is kept in ~/.cache/news/feeds/ for the refresh period, so turning a section
 off needs no fetch and turning one on fetches only it. Google refuses quick bursts (429), so its
-requests are spaced out, and links are decoded in the background, ten to a request. While a fetch
+requests are spaced out, and a story's link is decoded only when it's opened. While a fetch
 runs, ~/.cache/news/status.json says so, for the face's spinner.
 \"\"\"
 import concurrent.futures, email.utils, fcntl, gzip, hashlib, html, io, json, os, re, subprocess, sys, time, urllib.parse, urllib.request, zlib
@@ -42,7 +40,7 @@ FEEDS = os.path.join(CACHE, "feeds")
 STATUS = os.path.join(CACHE, "status.json")
 EDITIONS_FILE = os.path.join(CACHE, "editions.json")
 ARTICLES = os.path.join(CACHE, "articles")
-UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+UA = "owl-news/1.1 (Omalauncher news face)"
 
 DEFAULTS = {
     "edition": "US:en",     # Google News edition, country:language (EDITIONS)
@@ -199,7 +197,7 @@ def edition_query(s):
 
 HEADERS = {"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-           "Accept-Encoding": "gzip"}  # some sites (CBS) refuse a browser that doesn't take it
+           "Accept-Encoding": "gzip"}
 
 
 def get(url, data=None, timeout=25, limit=4 << 20):
@@ -431,8 +429,6 @@ def update(force, wait=False):
     finally:
         if fetching:
             save(STATUS, {"fetching": False, "since": int(time.time())})
-    if fetching and out["ok"] and any(not i["url"] or not i["img"] for i in out["items"]):
-        background("decode")
 
 
 def background(*args):
@@ -449,70 +445,6 @@ def patch_items(found):
                 i[k] = v
     if cache.get("items"):
         save(FEED, cache)
-
-
-def decode_all():
-    lock = open(FEED + ".decode", "w")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        return  # another one is at it
-    deadline = time.time() + 240
-    items = load(FEED, {}).get("items", [])
-    todo = [i["id"] for i in items if not i.get("url")]
-    found = {}
-    for k in range(0, len(todo), 10):
-        try:
-            for aid, url in decode_many(todo[k:k + 10]).items():
-                found[aid] = {"url": url}
-        except Exception:
-            break  # refused: the rest wait for the next fetch, or a tap
-        patch_items(found)
-        time.sleep(2)
-    for i in items:
-        url = i.get("url") or found.get(i["id"], {}).get("url")
-        if url and not i.get("img"):
-            # Google gave no picture (keyword searches never have one): the publisher's own.
-            if time.time() > deadline:
-                break
-            try:
-                img = page_image(page_head(url), url)
-                if img:
-                    found.setdefault(i["id"], {})["img"] = img
-                    patch_items(found)
-            except Exception:
-                pass
-
-
-# How a chat app asks for a link's preview: sites that refuse a browser (NYT, WSJ, the Times of Israel)
-# still give their previews to it. Only for the picture, never the story.
-PREVIEW_UA = "WhatsApp/2.23.20.0"
-
-
-def page_head(url):
-    \"\"\"A page up to its </head>, where og:image is: 15 seconds at most, however slowly it comes.\"\"\"
-    try:
-        return page_head_as(url, HEADERS)
-    except urllib.error.HTTPError as e:
-        if e.code not in (401, 403):
-            raise
-        return page_head_as(url, {"User-Agent": PREVIEW_UA, "Accept": "text/html,*/*", "Accept-Encoding": "gzip"})
-
-
-def page_head_as(url, headers):
-    # The reader's headers: sites that let the reader in (CBS, Haaretz) refused the plainer ones.
-    req = urllib.request.Request(url, headers=headers)
-    start, body = time.time(), b""
-    with urllib.request.urlopen(req, timeout=8) as r:
-        unzip = zlib.decompressobj(16 + zlib.MAX_WBITS) if r.headers.get("Content-Encoding") == "gzip" else None
-        while len(body) < 600_000 and time.time() - start < 15:
-            chunk = r.read1(32_768)
-            if not chunk:
-                break
-            body += unzip.decompress(chunk) if unzip else chunk
-            if b"</head>" in body.lower():
-                break
-    return body.decode("utf-8", "replace")
 
 
 def page_image(page, base):
@@ -771,8 +703,6 @@ def main():
     elif a[0] == "editions":
         save(EDITIONS_FILE, editions())
         print(json.dumps(editions(), ensure_ascii=False))
-    elif a[0] == "decode":
-        decode_all()
     elif a[0] in ("set", "add", "remove", "toggle") and len(a) == 3:
         change(*a)
     else:
@@ -886,21 +816,19 @@ main()
       let tag = mixed && i.tag != null ? (startsWith(i.tag, "#") ? sub(i.tag, 1, len(i.tag)) : get(sectionNames, i.tag, i.tag)) : null
       let age = i.time ? fmtAgo(i.time, now) : null
       if rtl {
-        if tag != null { Text { text: tag; fontSize: 10; bold: true; color: accent; maxLines: 1 } }
-        Spacer { weight: 1 }
+        if tag != null { Text { text: tag; fontSize: 10; bold: true; color: accent; maxLines: 1; width: 88 } }
+        Text { text: i.source; fontSize: 12; color: tint; maxLines: 1; font: font; weight: 1; align: end }
         if age != null {
-          Text { text: age; fontSize: 12; color: tint; maxLines: 1; font: font }
-          Text { text: "·"; fontSize: 12; color: tint }
+          Text { text: "·"; fontSize: 12; color: tint; width: 10; align: center }
+          Text { text: age; fontSize: 12; color: tint; maxLines: 1; font: font; width: 30 }
         }
-        Text { text: i.source; fontSize: 12; color: tint; maxLines: 1; font: font }
       } else {
-        Text { text: i.source; fontSize: 12; color: tint; maxLines: 1; font: font }
+        Text { text: i.source; fontSize: 12; color: tint; maxLines: 1; font: font; weight: 1 }
         if age != null {
-          Text { text: "·"; fontSize: 12; color: tint }
-          Text { text: age; fontSize: 12; color: tint; maxLines: 1; font: font }
+          Text { text: "·"; fontSize: 12; color: tint; width: 10; align: center }
+          Text { text: age; fontSize: 12; color: tint; maxLines: 1; font: font; width: 30 }
         }
-        Spacer { weight: 1 }
-        if tag != null { Text { text: tag; fontSize: 10; bold: true; color: accent; maxLines: 1 } }
+        if tag != null { Text { text: tag; fontSize: 10; bold: true; color: accent; maxLines: 1; width: 88; align: end } }
       }
     }
   }
@@ -1112,9 +1040,9 @@ main()
       Row {
         gap: 10
         align: top
-        if !rtl { Text { text: "•"; fontSize: ts; color: accent } }
+        if !rtl { Text { text: "•"; fontSize: ts; color: accent; width: 10 } }
         Text { text: b.t; fontSize: ts; weight: 1; font: font; align: al }
-        if rtl { Text { text: "•"; fontSize: ts; color: accent } }
+        if rtl { Text { text: "•"; fontSize: ts; color: accent; width: 10 } }
       }
     } else if b.k == "img" {
       Column {
@@ -1277,9 +1205,9 @@ main()
         borderColor: edOpen ? accent : border
         background: alpha(surface, 0.9)
         onTap: { edFilter = ""; edOpen = true }
-        Text { text: ed.country; fontSize: 15; maxLines: 1 }
-        Text { text: ed.lang; fontSize: 15; color: muted; maxLines: 1; weight: 1 }
-        Text { text: "▾"; fontSize: 15; color: accent }
+        Text { text: ed.country; fontSize: 15; maxLines: 1; weight: 1 }
+        Text { text: ed.lang; fontSize: 15; color: muted; maxLines: 1; width: 110; align: end }
+        Text { text: "▾"; fontSize: 15; color: accent; width: 14 }
       }
       Popup {
         visible: edOpen
@@ -1310,7 +1238,7 @@ main()
                   ack = run("python -c ${sh(runner)} ${sh(helper)} set edition ${sh(e.code)} >/dev/null 2>&1; echo ${int(sent)}")
                 }
                 Text { text: e.country; fontSize: 15; maxLines: 1; weight: 1; color: e.code == ed.code ? accent : foreground }
-                Text { text: e.lang; fontSize: 14; color: muted; maxLines: 1 }
+                Text { text: e.lang; fontSize: 14; color: muted; maxLines: 1; width: 110; align: end }
               }
             }
           }
