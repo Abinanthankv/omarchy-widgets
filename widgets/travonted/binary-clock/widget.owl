@@ -1,7 +1,7 @@
 widget "binary clock" {
   size: 3x2
   minSize: 2x2
-  meta { description: "The time as six columns of LEDs: hours, minutes and seconds in binary. Tap for a bigger clock with the date and a switch to blank leading zeros"; version: "1.0"; license: "MIT"; category: "time"; owl: 5 }
+  meta { description: "The time as six columns of LEDs: hours, minutes and seconds in binary. Tap for a bigger clock with the date and a switch to blank leading zeros"; version: "1.0.1"; license: "MIT"; category: "time"; owl: 5 }
 
   requires { pacman: [] }
 
@@ -24,8 +24,11 @@ widget "binary clock" {
       let labelH = 15
       let pitch = min(width / 7.1, (height - labelH) / 4.3)
       let gap = pitch * 0.5
+      // A narrow tile (landscape) shrinks the pitch until the labels touch the bottom row's glow, but leaves
+      // room to spare below: use up to 8dp of it to drop the labels clear. A full tile has none, so it is unchanged.
+      let drop = min(max(0, height - labelH - 4.3 * pitch), 8)
       let x0 = (width - 6 * pitch - 2 * gap) / 2 + pitch / 2
-      let y0 = (height - labelH - 4 * pitch) / 2 + pitch / 2
+      let y0 = (height - labelH - drop - 4 * pitch) / 2 + pitch / 2
       for i in range(6) {
         let cx = x0 + (i % 2) * pitch + floor(i / 2) * (2 * pitch + gap)
         let tint = i >= 4 ? accent : foreground
@@ -40,7 +43,7 @@ widget "binary clock" {
           }
         }
         if i % 2 == 0 {
-          text(["h", "m", "s"][i / 2], x0 + pitch / 2 + floor(i / 2) * (2 * pitch + gap), y0 + 3.5 * pitch, size: 10, align: center, color: muted)
+          text(["h", "m", "s"][i / 2], x0 + pitch / 2 + floor(i / 2) * (2 * pitch + gap), y0 + 3.5 * pitch + drop, size: 10, align: center, color: muted)
         }
       }
     }
