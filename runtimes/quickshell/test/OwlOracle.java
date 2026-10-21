@@ -216,7 +216,25 @@ public class OwlOracle {
     }
   }
 
+  // random() and shuffle(list) in a state's first value draw the same numbers
+  // here and in walk.js, or a face that deals from a shuffled bag, like tetris,
+  // shows a different next piece on each side.
+  static class Fixed extends kotlin.random.Random {
+    double x = 0;
+    public double nextDouble() { x = (x + 0.6180339887498949) % 1; return x; }
+    public int nextBits(int bits) { return (int) (nextDouble() * (1L << bits)); }
+  }
+
+  static void fixRandom() throws Exception {
+    java.lang.reflect.Field f = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+    f.setAccessible(true);
+    sun.misc.Unsafe u = (sun.misc.Unsafe) f.get(null);
+    java.lang.reflect.Field d = kotlin.random.Random.class.getDeclaredField("defaultRandom");
+    u.putObject(u.staticFieldBase(d), u.staticFieldOffset(d), new Fixed());
+  }
+
   public static void main(String[] a) throws Exception {
+    fixRandom();
     String src = new String(Files.readAllBytes(Paths.get(a[0])), "UTF-8");
     fixture = (Obj) Json.INSTANCE.parse(new String(Files.readAllBytes(Paths.get(a[1])), "UTF-8"));
     program = dev.omalauncher.widgets.lang.Compiler.Companion.compile(src);
