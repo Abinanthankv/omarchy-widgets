@@ -1,13 +1,15 @@
 widget "Dictation" {
  size: 3x4
  minSize: 3x3
- meta { owl: 6; description: "Dictate by voice, let Claude or Codex tidy the text, review it, then send it to a Codex chat or to Claude or any CLI in tmux. One page, no copy and paste."; version: "3.5"; license: "MIT"; category: "productivity" }
+ meta { owl: 6; description: "Dictate by voice, let Claude or Codex tidy the text, review it, then send it to a Codex chat or to Claude or any CLI in tmux. One page, no copy and paste."; version: "3.5.1"; license: "MIT"; category: "productivity" }
  requires { pacman: ["python", "espeak-ng", "libpulse", "mpg123", "tmux", "curl", "util-linux"] }
  source uiLanguage = file("~/.config/omalauncher/voice-ui-language")
  source installed = file("~/.local/share/oma-voice/dictation-version")
  source payloadVersion = file("~/.local/share/oma-voice/store-version")
  source setupState = file("~/.cache/oma-voice/setup-state")
  let ready = installed == "3.5.6-a593ddbe" || (installed == "" && payloadVersion == "3.5.6-a593ddbe")
+ // A short tile: the landscape home screen gives this 3x4 tile about 155dp of height.
+ let short = tileHeight != null && tileHeight < 180
  let setupText = setupState == "installing" && !ready ? (uiLanguage == "zh" ? "安裝中，約需一分鐘…" : uiLanguage == "es" ? "Instalando, cerca de un minuto…" : uiLanguage == "de" ? "Installation läuft, etwa eine Minute…" : uiLanguage == "fr" ? "Installation, environ une minute…" : uiLanguage == "ja" ? "インストール中、約1分…" : uiLanguage == "ko" ? "설치 중, 약 1분…" : "Installing, about a minute…") : setupState == "failed" ? (uiLanguage == "zh" ? "安裝失敗，請查看 ~/.cache/oma-voice/setup.log" : uiLanguage == "es" ? "La instalación falló: consulta ~/.cache/oma-voice/setup.log" : uiLanguage == "de" ? "Installation fehlgeschlagen: siehe ~/.cache/oma-voice/setup.log" : uiLanguage == "fr" ? "Échec de l’installation : voir ~/.cache/oma-voice/setup.log" : uiLanguage == "ja" ? "インストール失敗：~/.cache/oma-voice/setup.log を確認" : uiLanguage == "ko" ? "설치 실패: ~/.cache/oma-voice/setup.log 확인" : "Setup failed: see ~/.cache/oma-voice/setup.log") : installed == "" ? (uiLanguage == "zh" ? "首次使用：把播報與聽寫程式寫入 ~/.local，並下載 edge-tts 線上語音。" : uiLanguage == "es" ? "Primer uso: escribe los programas de voz y dictado en ~/.local y descarga edge-tts para la voz en línea." : uiLanguage == "de" ? "Erste Nutzung: schreibt die Programme für Sprachausgabe und Diktat nach ~/.local und lädt edge-tts für die Online-Stimme." : uiLanguage == "fr" ? "Première utilisation : écrit les programmes de voix et de dictée dans ~/.local et télécharge edge-tts pour la voix en ligne." : uiLanguage == "ja" ? "初回：読み上げと音声入力のプログラムを ~/.local に書き込み、オンライン音声用の edge-tts をダウンロードします。" : uiLanguage == "ko" ? "처음 사용: 음성 읽기와 받아쓰기 프로그램을 ~/.local 에 쓰고 온라인 음성용 edge-tts 를 내려받습니다." : "First use: writes the voice and dictation programs to ~/.local and downloads edge-tts for online speech.") : (uiLanguage == "zh" ? "程式有新版，更新後才能使用。" : uiLanguage == "es" ? "Hay una actualización de los programas; instálala para continuar." : uiLanguage == "de" ? "Für die Programme gibt es ein Update; zum Fortfahren installieren." : uiLanguage == "fr" ? "Les programmes ont une mise à jour ; installez-la pour continuer." : uiLanguage == "ja" ? "プログラムの更新があります。続けるには更新してください。" : uiLanguage == "ko" ? "프로그램 업데이트가 있습니다. 계속하려면 설치하세요." : "The programs have an update; install it to continue.")
  source voice = file("~/.cache/oma-voice/state.json") json
  source latest = file("~/.cache/oma-speak/latest.txt")
@@ -2077,7 +2079,28 @@ fi
 printf '%s' '3.5.6-a593ddbe' > "$HOME/.local/share/oma-voice/dictation-version"
 say done
 """) }
-   Button { fill: width; height: 36; text: (uiLanguage == "zh" ? "詳情" : uiLanguage == "es" ? "Detalles" : uiLanguage == "de" ? "Details" : uiLanguage == "fr" ? "Détails" : uiLanguage == "ja" ? "詳細" : uiLanguage == "ko" ? "상세" : "Details"); onTap: screen() }
+   if !short {
+    Button { fill: width; height: 36; text: (uiLanguage == "zh" ? "詳情" : uiLanguage == "es" ? "Detalles" : uiLanguage == "de" ? "Details" : uiLanguage == "fr" ? "Détails" : uiLanguage == "ja" ? "詳細" : uiLanguage == "ko" ? "상세" : "Details"); onTap: screen() }
+   }
+  } else {
+  if short {
+   // A short wide tile (landscape home screen): Start beside Send, without the target line and
+   // the Details button (tapping the tile opens the page), so the latest text keeps its lines.
+    Text { text: (uiLanguage == "zh" ? "語音輸入" : uiLanguage == "es" ? "DICTADO" : uiLanguage == "de" ? "DIKTAT" : uiLanguage == "fr" ? "DICTÉE" : uiLanguage == "ja" ? "音声入力" : uiLanguage == "ko" ? "받아쓰기" : "DICTATION"); style: label; color: accent }
+    Text { text: latest == "" || latest == null ? (uiLanguage == "zh" ? "開始 → 說話 → 停止並保存" : uiLanguage == "es" ? "Iniciar → hablar → parar y guardar" : uiLanguage == "de" ? "Starten → sprechen → stoppen und speichern" : uiLanguage == "fr" ? "Démarrer → parler → arrêter et enregistrer" : uiLanguage == "ja" ? "開始 → 話す → 停止して保存" : uiLanguage == "ko" ? "시작 → 말하기 → 정지 후 저장" : "Start → speak → stop and save") : latest; style: small; maxLines: 3; weight: 1 }
+    Text { text: queued.id != null ? (uiLanguage == "zh" ? "排隊中：只保留最新一則" : uiLanguage == "es" ? "En espera de Codex: solo el último mensaje" : uiLanguage == "de" ? "Wartet auf Codex: nur die neueste Nachricht" : uiLanguage == "fr" ? "En attente de Codex : seul le dernier message" : uiLanguage == "ja" ? "Codex 待ち：最新の 1 件のみ" : uiLanguage == "ko" ? "Codex 대기 중: 최신 메시지만" : "Waiting for Codex: newest message only") : sendMessage; style: small; color: queued.id != null ? yellow : sendStatus.phase == "failed" ? red : sendStatus.phase == "sent" || sendStatus.phase == "saved" ? accent : muted; maxLines: 2 }
+   Row {
+    gap: 4
+    Button { height: 36; weight: 1; text: (uiLanguage == "zh" ? "語音輸入" : uiLanguage == "es" ? "Dictar" : uiLanguage == "de" ? "Diktieren" : uiLanguage == "fr" ? "Dicter" : uiLanguage == "ja" ? "音声入力" : uiLanguage == "ko" ? "받아쓰기" : "Dictate"); onTap: run("bash ~/.local/bin/speak") }
+   if voice.source == "claude" && (voice.term_pane == "" || voice.term_pane == null) {
+    Button { height: 36; weight: 1; text: copyState == "copied" ? (uiLanguage == "zh" ? "已複製" : uiLanguage == "es" ? "Copiado" : uiLanguage == "de" ? "Kopiert" : uiLanguage == "fr" ? "Copié" : uiLanguage == "ja" ? "コピーしました" : uiLanguage == "ko" ? "복사됨" : "Copied") : (uiLanguage == "zh" ? "複製內容" : uiLanguage == "es" ? "Copiar texto" : uiLanguage == "de" ? "Text kopieren" : uiLanguage == "fr" ? "Copier le texte" : uiLanguage == "ja" ? "テキストをコピー" : uiLanguage == "ko" ? "텍스트 복사" : "Copy text"); onTap: { copyState = latest == "" || latest == null ? "empty" : "copied"; copy(latest) } }
+   } else {
+   Button { height: 36; weight: 1; text: actionPending == "send" || sendStatus.phase == "sending" ? (uiLanguage == "zh" ? "正在送出…" : uiLanguage == "es" ? "Enviando…" : uiLanguage == "de" ? "Sende…" : uiLanguage == "fr" ? "Envoi…" : uiLanguage == "ja" ? "送信中…" : uiLanguage == "ko" ? "전송 중…" : "Sending…") : sendStatus.phase == "sent" && sendStatus.version == "original" ? (uiLanguage == "zh" ? "已排隊" : uiLanguage == "es" ? "En cola" : uiLanguage == "de" ? "Eingereiht" : uiLanguage == "fr" ? "Mis en file" : uiLanguage == "ja" ? "キュー済み" : uiLanguage == "ko" ? "대기열 등록" : "Queued") : (uiLanguage == "zh" ? "送出" : uiLanguage == "es" ? "Enviar" : uiLanguage == "de" ? "Senden" : uiLanguage == "fr" ? "Envoyer" : uiLanguage == "ja" ? "送信" : uiLanguage == "ko" ? "보내기" : "Send"); onTap: { actionKind = "send"; actionPending = "send"; actionResult = ""; actionResult = run("python ~/.local/bin/oma-send-dictation --json") } }
+   }
+    if queued.id != null {
+      Button { height: 36; weight: 1; text: actionPending == "unqueue" ? (uiLanguage == "zh" ? "處理中…" : uiLanguage == "es" ? "Procesando…" : uiLanguage == "de" ? "Wird verarbeitet…" : uiLanguage == "fr" ? "Traitement…" : uiLanguage == "ja" ? "処理中…" : uiLanguage == "ko" ? "처리 중…" : "Working…") : (uiLanguage == "zh" ? "取消排隊" : uiLanguage == "es" ? "Cancelar espera" : uiLanguage == "de" ? "Warten abbrechen" : uiLanguage == "fr" ? "Annuler l’attente" : uiLanguage == "ja" ? "待機を取り消す" : uiLanguage == "ko" ? "대기 취소" : "Cancel waiting"); onTap: { actionKind = "unqueue"; actionPending = "unqueue"; actionResult = ""; actionResult = run("python ~/.local/share/oma-voice/oma_voice.py unqueue --json") } }
+    }
+   }
   } else {
   Text { text: (uiLanguage == "zh" ? "語音輸入" : uiLanguage == "es" ? "DICTADO" : uiLanguage == "de" ? "DIKTAT" : uiLanguage == "fr" ? "DICTÉE" : uiLanguage == "ja" ? "音声入力" : uiLanguage == "ko" ? "받아쓰기" : "DICTATION"); style: label; color: accent }
   Button { fill: width; height: 36; text: (uiLanguage == "zh" ? "開始語音輸入" : uiLanguage == "es" ? "Iniciar dictado" : uiLanguage == "de" ? "Diktat starten" : uiLanguage == "fr" ? "Démarrer la dictée" : uiLanguage == "ja" ? "音声入力を開始" : uiLanguage == "ko" ? "받아쓰기 시작" : "Start dictation"); onTap: run("bash ~/.local/bin/speak") }
@@ -2096,6 +2119,7 @@ say done
    } else {
     Button { height: 36; weight: 1; text: (uiLanguage == "zh" ? "詳情" : uiLanguage == "es" ? "Detalles" : uiLanguage == "de" ? "Details" : uiLanguage == "fr" ? "Détails" : uiLanguage == "ja" ? "詳細" : uiLanguage == "ko" ? "상세" : "Details"); onTap: screen() }
    }
+  }
   }
   }
  }
