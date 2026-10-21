@@ -5,7 +5,7 @@ widget "private space" {
   meta {
     owl: 9
     description: "Control and open your Android 15+ Private Space apps via local ADB"
-    version: "2.4"
+    version: "2.5"
     license: "MIT"
     category: "system"
   }
@@ -378,6 +378,8 @@ python3 "$d/ctl.py" status
   let unlocked = ps.unlocked ?? false
   let privApps = ps.apps ?? []
   let shortcutApps = shortcuts.map(pkg => privApps.find(a => a.package == pkg)).filter(a => a != null)
+  // Two shortcuts side by side cut their names below ~240dp: stack them instead.
+  let stackShortcuts = tileWidth < 240
 
   onTap: screen()
 
@@ -389,7 +391,7 @@ python3 "$d/ctl.py" status
     Row {
       gap: 4
       align: center
-      Text { text: "private space"; style: label; weight: 1; maxLines: 1 }
+      Text { text: tileWidth < 170 ? "private" : "private space"; style: label; weight: 1; maxLines: 1 }
       Text {
         text: !adbOk ? (ps.mode == "tcp5555" ? "offline" : "pair") : !hasUser ? "no profile" : unlocked ? "${len(privApps)} apps" : "locked"
         style: small
@@ -408,6 +410,21 @@ python3 "$d/ctl.py" status
         onSubmit: {
           haptic()
           pairResult = run("python3 ~/.local/share/omalauncher/private-space/ctl.py pair ${sh(value)}")
+        }
+      }
+    } else if unlocked && len(shortcutApps) > 0 && stackShortcuts {
+      Column {
+        gap: 4
+        for a in shortcutApps.take(2) key a.package {
+          Button {
+            text: a.name
+            color: accent
+            fill: width
+            onTap: {
+              haptic()
+              run("python3 ~/.local/share/omalauncher/private-space/ctl.py open ${sh(a.component)}")
+            }
+          }
         }
       }
     } else if unlocked && len(shortcutApps) > 0 {
