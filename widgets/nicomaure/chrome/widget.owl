@@ -4,11 +4,17 @@ widget "chrome" {
   padding: 10
   background: background
 
-  meta { owl: 7; description: "Google search bar for Chrome: search, open URLs, Lens and AI Mode. Shortcuts like \"yt cats\"; type ? for the list."; version: "1.1"; license: "MIT"; category: "productivity" }
+  meta { owl: 7; description: "Google search bar for Chrome: search, open URLs, Lens and AI Mode. Shortcuts like \"yt cats\"; type ? for the list."; version: "1.1.1"; license: "MIT"; category: "productivity" }
 
   state q = ""
   state tip = 0
   state go = ""
+  // Which page screen() shows: the shortcut list, or (on a tall tile) the search field.
+  state view = "help"
+
+  // A tile taller than wide (the landscape home screen) has no room for a text
+  // field, so the buttons stack and a search button opens the field in a screen.
+  let tall = tileWidth != null && tileHeight != null && tileHeight > tileWidth * 1.3
 
   // Shortcuts: type "yt cats" to search YouTube, "m coffee" for Maps, and so on.
   // Add your own here; they show up in the help screen (type ? and enter) too.
@@ -41,8 +47,12 @@ widget "chrome" {
   let target = wantsHelp ? "help" : t == "" ? "https://www.google.com/" : isUrl ? site : (engine == null ? "https://www.google.com/search?q=" : engine.url) + enc
 
   // Handlers can't branch, so submitting parks the target in `go` and these act on it.
-  when go == "help" { screen(); go = "" }
-  when go != "" && go != "help" { url(go); go = "" }
+  when go == "help" { view = "help"; screen(); go = "" }
+  when go != "" && go != "help" && go != "pick" { url(go); go = "" }
+  // Picking a shortcut drops back to the tile's field, or on a tall tile (no field)
+  // switches the screen to its search page.
+  when go == "pick" && !tall { close(); go = "" }
+  when go == "pick" && tall { go = "" }
 
   component LensIcon() {
     Canvas {
@@ -74,6 +84,49 @@ widget "chrome" {
     }
   }
 
+  component SearchIcon() {
+    Canvas {
+      size: 28
+      circle(12, 12, 7.5, stroke: foreground, width: 2.6)
+      path([[17.5, 17.5], [24, 24]], stroke: foreground, width: 2.6, cap: round)
+    }
+  }
+
+  if tall {
+    Column {
+      fill: true
+      align: center
+      justify: spaceEvenly
+
+      Box {
+        size: 46
+        align: center
+        onTap: { haptic(); androidApp("com.android.chrome") }
+        Image { src: "app:com.android.chrome"; size: 32 }
+      }
+
+      Box {
+        size: 46
+        align: center
+        onTap: { haptic(); view = "search"; screen() }
+        SearchIcon {}
+      }
+
+      Box {
+        size: 46
+        align: center
+        onTap: { haptic(); androidApp("com.google.android.googlequicksearchbox") }
+        LensIcon {}
+      }
+
+      Box {
+        size: 46
+        align: center
+        onTap: { haptic(); url("https://www.google.com/search?udm=50"); q = "" }
+        AiIcon {}
+      }
+    }
+  } else {
   Row {
     gap: 6
     align: center
@@ -128,6 +181,7 @@ widget "chrome" {
       AiIcon {}
     }
   }
+  }
 
   component HelpRow(icon, title, hint) {
     Row {
@@ -146,7 +200,59 @@ widget "chrome" {
   }
 
   screen {
-    title: "shortcuts"
+    title: view == "search" ? "search" : "shortcuts"
+    if view == "search" {
+      Column {
+        gap: 14
+        padding: 18
+
+        Row {
+          gap: 10
+          align: center
+          if engine != null {
+            Chip { label: engine.name }
+          } else if isUrl {
+            Chip { label: "Go ↗" }
+          }
+          Input {
+            text: q
+            placeholder: "search or type a URL…"
+            focus: true
+            weight: 1
+            fontSize: 16
+            onChange: q = value
+            onSubmit: { close(); go = target; q = "" }
+          }
+        }
+
+        Row {
+          gap: 10
+          align: center
+          Box {
+            size: 46
+            align: center
+            onTap: { haptic(); androidApp("com.google.android.googlequicksearchbox") }
+            LensIcon {}
+          }
+          Box {
+            size: 46
+            align: center
+            onTap: { haptic(); url("https://www.google.com/search?udm=50" + (body == "" ? "" : "&q=" + enc)); q = "" }
+            AiIcon {}
+          }
+          Spacer { weight: 1 }
+          Box {
+            height: 34
+            padding: [12, 0]
+            align: center
+            radius: 3 * corners
+            background: alpha(accent, 0.18)
+            onTap: { haptic(); view = "help" }
+            Text { text: "shortcuts"; bold: true; fontSize: 13; color: accent }
+          }
+        }
+      }
+    } else {
     Column {
       scroll: true
       gap: 18
@@ -157,7 +263,7 @@ widget "chrome" {
       for s in shortcuts key s.key {
         Box {
           fill: width
-          onTap: { haptic(); q = s.key + " "; close() }
+          onTap: { haptic(); q = s.key + " "; view = "search"; go = "pick" }
           HelpRow { icon: s.key; title: s.name; hint: "${s.key} ${s.example}" }
         }
       }
@@ -189,6 +295,7 @@ widget "chrome" {
           Text { text: "asks Google AI what you typed"; fontSize: 13; color: muted; maxLines: 1 }
         }
       }
+    }
     }
   }
 }
