@@ -5,23 +5,23 @@ widget "neon ytdlp" {
   meta {
     owl: 8
     description: "Neon downloader for YouTube, YT Music & Drive: format selector, video+audio merge with FFmpeg, MP3 audio & auto yt-dlp updater."
-    version: "1.6.1"
+    version: "1.7"
     license: "MIT"
     category: "media"
   }
 
-  // Only small core packages are hard requirements. yt-dlp, FFmpeg and the JS runtime
-  // (quickjs-ng) are installed by the widget itself: pacman first, then the official
-  // GitHub builds as a fallback, so a slow or broken mirror never blocks the widget.
-  requires { pacman: ["jq", "curl", "python", "tar", "xz", "findutils", "procps-ng"] }
+  // Every package the commands use is declared. yt-dlp, FFmpeg and the JS runtime
+  // (quickjs-ng) can also be updated by the widget itself: pacman first, then the official
+  // GitHub builds as a fallback, so a slow or broken mirror never blocks an update.
+  requires { pacman: ["jq", "curl", "python", "tar", "xz", "findutils", "procps-ng", "yt-dlp", "ffmpeg", "quickjs-ng"] }
 
   source live = file("~/.cache/omalauncher-neondl/state.json") json
   source probe = cmd("""f=~/.cache/omalauncher-neondl/ctl.sh
-if ! grep -q "^# v2.4" "$f" 2>/dev/null; then
+if ! grep -q "^# v2.5" "$f" 2>/dev/null; then
 mkdir -p ~/.cache/omalauncher-neondl/bin ~/Downloads ~/share
 cat > "$f.tmp" <<'SH'
 #!/bin/bash
-# v2.4
+# v2.5
 export PATH="$HOME/.cache/omalauncher-neondl/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 C="$HOME/.cache/omalauncher-neondl"
 SF="$C/state.json"
@@ -347,6 +347,14 @@ PY
   cat "$SF"
 }
 
+# Cheap progress update while downloading: one jq call, no file listing
+prog() {
+  [ -s "$SF" ] || return 0
+  jq -c --arg ph "$1" --argjson pr "${2:-0}" --arg msg "$3" \
+    '.phase = $ph | .progress = $pr | .step_msg = $msg | .error = ""' "$SF" > "$SF.p$$" 2>/dev/null \
+    && mv -f "$SF.p$$" "$SF"
+}
+
 do_install() {
   echo $$ > "$LF"
   trap 'rm -f "$LF"' EXIT
@@ -657,7 +665,10 @@ do_download() {
 
   local js_args=()
   mapfile -t js_args < <(ytargs)
-  local cmd_args=("${js_args[@]}" --no-playlist --newline --no-warnings -o "$out_tmpl")
+  # -N: parallel fragments; socket timeout + retries: a stalled connection is retried
+  # instead of hanging forever; progress-delta: one progress line per second
+  local cmd_args=("${js_args[@]}" --no-playlist --newline --no-warnings -o "$out_tmpl"
+    -N 4 --socket-timeout 30 --retries 10 --fragment-retries 10 --progress-delta 1)
   if [ "$mode" = "mp3" ]; then
     cmd_args+=(-f "ba/b" -x --audio-format mp3 --audio-quality 0 --embed-metadata)
   elif [ "$mode" = "m4a" ]; then
@@ -674,15 +685,26 @@ do_download() {
   before_ts=$(date +%s)
 
   local dl_code=0
-  "$yb" "${cmd_args[@]}" "$url" 2>&1 | while IFS= read -r line; do
-    if [[ "$line" =~ ([0-9]+(\.[0-9]+)?)% ]]; then
-      local p="${BASH_REMATCH[1]%.*}"
-      [ -z "$p" ] && p=15
-      emit downloading "$p" "DL_PCT:${BASH_REMATCH[1]}%" "" >/dev/null
-    elif [[ "$line" =~ \[Merger\]|\[ExtractAudio\] ]]; then
-      emit downloading 95 "FFMPEG_MERGE" "" >/dev/null
-    fi
-  done
+  # Progress is written at most once a second with a single jq call. A full emit per line
+  # (python + jq) couldn't keep up with yt-dlp's output, so the shown % lagged further and
+  # further behind and the job seemed to never finish.
+  "$yb" "${cmd_args[@]}" "$url" 2>&1 | {
+    last_p=-1
+    last_t=-1
+    while IFS= read -r line; do
+      if [[ "$line" =~ ^\[download\][[:space:]]+([0-9]+(\.[0-9]+)?)% ]]; then
+        p="${BASH_REMATCH[1]%.*}"
+        [ -z "$p" ] && p=15
+        if [ "$p" != "$last_p" ] && [ "$SECONDS" != "$last_t" ]; then
+          prog downloading "$p" "DL_PCT:${BASH_REMATCH[1]}%"
+          last_p=$p
+          last_t=$SECONDS
+        fi
+      elif [[ "$line" =~ \[Merger\]|\[ExtractAudio\]|\[VideoRemuxer\] ]]; then
+        prog downloading 95 "FFMPEG_MERGE"
+      fi
+    done
+  }
   dl_code=${PIPESTATUS[0]}
 
   local newest=""
@@ -857,7 +879,11 @@ fi""") every 1m json timeout 15s
   let isDownloading = phase == "downloading"
   let currentDl = activeDl != "" ? activeDl : (info.active_dl ?? "")
   let isBestDl = isDownloading && currentDl == "quick-best"
-  let is1080Dl = isDownloading && currentDl == "quick-1080p"
+  let isMaxDl = isDownloading && currentDl == "quick-max"
+
+  // Default video download: up to 1080p, H.264 + M4A (light, plays everywhere).
+  // The "max quality" button keeps the old behaviour (best available, can be 4K AV1/VP9).
+  let recSpec = "bv*[height<=1080][vcodec^=avc]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b"
   let isVoDl = isDownloading && currentDl == "quick-vo"
   let isMp3Dl = isDownloading && currentDl == "quick-mp3"
   let isM4aDl = isDownloading && currentDl == "quick-m4a"
@@ -955,7 +981,7 @@ fi""") every 1m json timeout 15s
       onTap: {
         haptic()
         activeDl = isDownloading ? activeDl : dlId
-        run(isDownloading ? "true" : "bash ~/.cache/omalauncher-neondl/ctl.sh download ${sh(activeUrl)} ${sh(fmt)} ${kind} ${dlId}")
+        run(isDownloading ? "true" : "bash ~/.cache/omalauncher-neondl/ctl.sh download ${sh(activeUrl)} ${sh(fmt)} ${sh(kind)} ${sh(dlId)}")
       }
       Text { text: label; fontSize: 10; bold: true; color: tint; align: center; maxLines: 1; fill: width }
     }
@@ -1081,14 +1107,14 @@ fi""") every 1m json timeout 15s
           Text { text: isEs ? "🔍 Formatos" : "🔍 Formats"; fontSize: 10; bold: true; color: neonBlue; align: center; maxLines: 1; fill: width }
         }
         if !compact {
-          QuickDl { label: "🎬 Video+Audio"; tint: neonGreen; fmt: "bv*+ba/b"; kind: "video"; dlId: "quick-best" }
+          QuickDl { label: "🎬 Video+Audio"; tint: neonGreen; fmt: recSpec; kind: "video"; dlId: "quick-best" }
           QuickDl { label: "🎵 YT Music MP3"; tint: neonRed; fmt: "ba/b"; kind: "mp3"; dlId: "quick-mp3" }
         }
       }
     }
 
     if compact && tall && isInstalled && !isDownloading {
-      Row { QuickDl { label: "🎬 Video+Audio"; tint: neonGreen; fmt: "bv*+ba/b"; kind: "video"; dlId: "quick-best" } }
+      Row { QuickDl { label: "🎬 Video+Audio"; tint: neonGreen; fmt: recSpec; kind: "video"; dlId: "quick-best" } }
       Row { QuickDl { label: "🎵 YT Music MP3"; tint: neonRed; fmt: "ba/b"; kind: "mp3"; dlId: "quick-mp3" } }
     }
 
@@ -1469,31 +1495,31 @@ fi""") every 1m json timeout 15s
               onTap: {
                 haptic()
                 activeDl = isDownloading ? activeDl : "quick-best"
-                run(isDownloading ? "true" : "bash ~/.cache/omalauncher-neondl/ctl.sh download ${sh(activeUrl)} ${sh('bv*+ba/b')} video quick-best")
+                run(isDownloading ? "true" : "bash ~/.cache/omalauncher-neondl/ctl.sh download ${sh(activeUrl)} ${sh(recSpec)} video quick-best")
               }
               Text {
                 text: isBestDl
                   ? (isEs ? "⏳ Bajar (${progress}%)" : "⏳ Getting (${progress}%)")
-                  : (isEs ? "🎬 Mejor MP4 (V+A)" : "🎬 Best MP4 (V+A)")
+                  : (isEs ? "⭐ Recomendado 1080p" : "⭐ Recommended 1080p")
                 fontSize: 10; bold: true; color: neonGreen; align: center; maxLines: 1; fill: width
               }
             }
             Box {
               weight: 1; padding: [6, 8]; radius: 6 * corners
-              background: is1080Dl ? alpha(neonBlue, 0.35) : alpha(neonBlue, 0.16)
-              border: is1080Dl ? 2 : 1
+              background: isMaxDl ? alpha(neonBlue, 0.35) : alpha(neonBlue, 0.16)
+              border: isMaxDl ? 2 : 1
               borderColor: neonBlue
-              opacity: isDownloading && !is1080Dl ? 0.45 : 1.0
+              opacity: isDownloading && !isMaxDl ? 0.45 : 1.0
               align: center
               onTap: {
                 haptic()
-                activeDl = isDownloading ? activeDl : "quick-1080p"
-                run(isDownloading ? "true" : "bash ~/.cache/omalauncher-neondl/ctl.sh download ${sh(activeUrl)} ${sh('bv*[height<=1080]+ba/b[height<=1080]/b')} video quick-1080p")
+                activeDl = isDownloading ? activeDl : "quick-max"
+                run(isDownloading ? "true" : "bash ~/.cache/omalauncher-neondl/ctl.sh download ${sh(activeUrl)} ${sh('bv*+ba/b')} video quick-max")
               }
               Text {
-                text: is1080Dl
+                text: isMaxDl
                   ? (isEs ? "⏳ Bajar (${progress}%)" : "⏳ Getting (${progress}%)")
-                  : "🎬 1080p MP4 (V+A)"
+                  : (isEs ? "💎 Máxima (4K)" : "💎 Max (4K)")
                 fontSize: 10; bold: true; color: neonBlue; align: center; maxLines: 1; fill: width
               }
             }
