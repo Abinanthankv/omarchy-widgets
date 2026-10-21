@@ -4,7 +4,7 @@ widget "transcrivoz" {
   meta {
     owl: 7
     description: "One-tap controller for TranscriVoz AI transcription. Runs on 127.0.0.1:5050 in desktop mode without a password, so other apps on the phone could use the saved API key."
-    version: "3.0"
+    version: "3.1"
     license: "MIT"
     category: "productivity"
   }
@@ -136,7 +136,8 @@ fi""") every 5s json timeout 15s
     shareLink = ""
   }
 
-  let compact = (cols ?? 6) < 5
+  let compact = (tileWidth ?? 400) < 300
+  let tall = (tileHeight ?? 0) > (tileWidth ?? 400) * 1.3
   let statusText = isBusy ? "◌ ${phase}…" : !isInstalled ? "○ not installed" : isRunning ? "● active :5050" : "○ venv stopped"
   let statusColor = isBusy ? cyan : !isInstalled ? yellow : isRunning ? green : muted
 
@@ -150,7 +151,22 @@ fi""") every 5s json timeout 15s
     }
   }
 
-  component Badges() {
+  component Badges(grid = false) {
+    if grid {
+      Column {
+        gap: 6
+        Row {
+          gap: 6
+          CheckBadge { label: "FFmpeg"; ok: hasFfmpeg }
+          CheckBadge { label: "Repo"; ok: hasRepo }
+        }
+        Row {
+          gap: 6
+          CheckBadge { label: "Venv"; ok: hasVenv }
+          CheckBadge { label: hasKey ? "API Key" : "Web Key"; ok: hasKey; warn: isInstalled && !hasKey }
+        }
+      }
+    } else {
     Row {
       gap: 6
       CheckBadge { label: "FFmpeg"; ok: hasFfmpeg }
@@ -158,16 +174,22 @@ fi""") every 5s json timeout 15s
       CheckBadge { label: "Venv"; ok: hasVenv }
       CheckBadge { label: hasKey ? "API Key" : "Web Key"; ok: hasKey; warn: isInstalled && !hasKey }
     }
+    }
   }
 
   onTap: screen()
 
   Column {
     gap: 6; fill: true
-    Row {
-      align: center
-      Text { text: "TranscriVoz"; style: title; color: accent; weight: 1 }
-      Text { text: statusText; style: small; color: statusColor; width: 145; maxLines: 1; align: end }
+    if compact {
+      Text { text: "TranscriVoz"; style: title; color: accent; maxLines: 1 }
+      Text { text: statusText; style: small; color: statusColor; maxLines: 1 }
+    } else {
+      Row {
+        align: center
+        Text { text: "TranscriVoz"; style: title; color: accent; weight: 1 }
+        Text { text: statusText; style: small; color: statusColor; width: 145; maxLines: 1; align: end }
+      }
     }
     Text {
       text: isBusy ? (stepMsg != "" ? stepMsg : "Working, please wait…")
@@ -177,13 +199,15 @@ fi""") every 5s json timeout 15s
         : "Ready · Activate venv or tap Open Browser to launch"
       style: small
       color: errMsg != "" ? red : (isRunning && !hasKey) ? yellow : isBusy ? foreground : muted
-      maxLines: errMsg != "" ? 2 : 1
+      maxLines: tall ? 4 : errMsg != "" ? 2 : 1
     }
     Spacer { weight: 1 }
     if isBusy {
       Progress { value: progress; max: 100; color: accent; animate value: spring() }
     } else if !compact {
       Badges {}
+    } else if tall {
+      Badges { grid: true }
     }
     Spacer { weight: 1 }
     Row {
