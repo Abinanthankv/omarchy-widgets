@@ -115,6 +115,18 @@ for owl in $owls $apps; do
     echo "- 🎨 \`$(basename "$dir")\` has $n of the 22 themed previews; on an emulator, render them with omarchy-proot's \`scripts/store-previews.sh <this repo> $(basename "$dir")\`"
   fi
 done
+# A grid row or column is a different number of dp on every phone, so a layout picked by comparing
+# rows or cols leaves a gap on tall screens or cuts off on short ones. A warning, since a game board
+# sized in cells can mean it.
+grid='(^|[^A-Za-z0-9_.])(rows|cols)([ \t]*\?\?[ \t]*[0-9]+\))?[ \t]*([<>]=?|[=!]=)[ \t]*[0-9]|[0-9][ \t]*([<>]=?|[=!]=)[ \t]*\(?(rows|cols)([^A-Za-z0-9_]|$)'
+for owl in $owls $apps; do
+  cmp -s "$out/$owl" "$out/base/$owl" && continue
+  n=$(grep -nE "$grid" "$out/$owl" | head -1 | cut -d: -f1)
+  if [ -n "$n" ]; then
+    echo "::warning file=$owl,line=$n::picks its layout by rows or cols; compare tileHeight or tileWidth (dp) instead, since a row's height differs by phone"
+  fi
+done
+
 echo "$owls $apps" | tr ' ' '\n' | grep . > "$out/owls.txt" || true
 echo "files are in $out" >&2
 exit $bad
