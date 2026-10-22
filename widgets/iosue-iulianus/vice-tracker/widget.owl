@@ -5,7 +5,7 @@ widget "vice-tracker" {
   meta {
     owl: 7
     description: "One-tap logging of cigarettes, whiskey and beer, kept on the phone: today's totals against daily goals, streaks, undo, an editable calendar and 7 or 30-day charts"
-    version: "1.0.1"
+    version: "1.0.2"
     license: "MIT"
     category: "productivity"
   }
@@ -51,7 +51,9 @@ widget "vice-tracker" {
   let compact = cols != null && (cols < 4 || (tileWidth ?? 999) < 300)
   // A 3x2 on a small phone: about 34dp per card.
   let tiny = (tileWidth ?? 999) < 200
-  let short = rows != null && rows < 3
+  // By height in dp, not rows: a row is a different height on every phone. The header and
+  // full cards need about 125dp.
+  let short = (tileHeight ?? 999) < 125
   // A tile taller than wide (landscape home screen) stacks the vices as rows, with undo and
   // the calendar along the bottom, instead of three thin full-height cards.
   let tall = tileWidth != null && tileHeight != null && tileHeight > tileWidth * 1.3
