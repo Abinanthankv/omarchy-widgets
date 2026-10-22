@@ -13,7 +13,7 @@ app "checkmate" {
   // the solver is to move, and get harder down the list. Any last move that mates counts.
   // Pieces: Colin M.L. Burnett's set from Wikimedia Commons (BSD).
 
-  meta { owl: 10; description: "Mate in two or three: 60 chess puzzles, each unlike the others, from easy to hard, played out to the end against the best defence"; version: "1.0"; license: "MIT"; category: "games" }
+  meta { owl: 10; description: "Mate in two or three: 60 chess puzzles, each unlike the others, from easy to hard, played out to the end against the best defence"; version: "1.1"; license: "MIT"; category: "games" }
 
   // The header below is the title: no title row.
   title: ""
@@ -216,10 +216,22 @@ app "checkmate" {
   let N = pz[3]
   let sol = split(pz[4], " ")
   let wtm = pz[2] == "w"
-  let ents = split(pz[7], " ")
+  // the replies, searched as text: some puzzles have thousands, more than a list holds
+  let ents = " " + pz[7]
   let solvedHere = indexOf(done, pz[0]) >= 0
   let cells = replace(replace(replace(replace(replace(replace(replace(replace(replace(pz[1], "/", ""), "8", "........"), "7", "......."), "6", "......"), "5", "....."), "4", "...."), "3", "..."), "2", ".."), "1", ".")
-  let mates = [ents.find(e => startsWith(e, upath + "="))].map(e => e == null ? [] : split(sub(e, len(upath) + 1, len(e)), ","))[0]
+  let mates = [match(ents, " " + upath + "=([^ ]+)")].map(m => m == null ? [] : split(m[0], ","))[0]
+
+  // ---- where the selected piece can go ---------------------------------------------------------
+  let sk = sel >= 0 ? lower(board[sel] ?? ".") : ""
+  let sfy = floor(sel / 8)
+  let fwd = wtm ? -1 : 1
+  let en = wtm ? ["n", "b", "r", "q", "k", "p"] : ["N", "B", "R", "Q", "K", "P"]
+  // the squares its move takes it to, over empty squares, apart from its own side's
+  let reach = sel < 0 ? [] : range(64).map(i => {i: i, p: board[i], dx: i % 8 - sel % 8, dy: floor(i / 8) - sfy}).filter(o => o.p == "." || (o.p == upper(o.p)) != wtm).map(o => {i: o.i, p: o.p, dx: o.dx, dy: o.dy, ax: abs(o.dx), ay: abs(o.dy)}).filter(o => sk == "n" ? (o.ax == 1 && o.ay == 2) || (o.ax == 2 && o.ay == 1) : sk == "k" ? max(o.ax, o.ay) == 1 : sk == "p" ? (o.dx == 0 && o.dy == fwd && o.p == ".") || (o.dx == 0 && o.dy == 2 * fwd && sfy == (wtm ? 6 : 1) && o.p == "." && board[sel + fwd * 8] == ".") || (o.ax == 1 && o.dy == fwd && (o.p != "." || o.i == ep)) : (sk == "r" ? o.dx == 0 || o.dy == 0 : sk == "b" ? o.ax == o.ay : o.dx == 0 || o.dy == 0 || o.ax == o.ay) && all(range(1, max(o.ax, o.ay)), s => board[sel + s * (sign(o.dy) * 8 + sign(o.dx))] == ".")).map(o => o.i)
+  // and of those, the ones that leave its king safe: no knight, king or pawn next to it, and the
+  // first piece along each line from it not a bishop or queen on a diagonal, a rook or queen on a straight
+  let targets = reach.filter(i => [set(set(board, i, board[sel]), sel, ".")].map(b1 => sk == "p" && i == ep && board[i] == "." ? set(b1, sfy * 8 + i % 8, ".") : b1).map(b => {b: b, ks: indexOf(b, wtm ? "K" : "k")}).map(o => {b: o.b, kr: floor(o.ks / 8), kc: o.ks % 8}).map(o => !(JUMPS.any(d => o.kr + d[0] >= 0 && o.kr + d[0] < 8 && o.kc + d[1] >= 0 && o.kc + d[1] < 8 && o.b[(o.kr + d[0]) * 8 + o.kc + d[1]] == en[0]) || STEPS.any(d => o.kr + d[0] >= 0 && o.kr + d[0] < 8 && o.kc + d[1] >= 0 && o.kc + d[1] < 8 && o.b[(o.kr + d[0]) * 8 + o.kc + d[1]] == en[4]) || [-1, 1].any(dc => o.kr + fwd >= 0 && o.kr + fwd < 8 && o.kc + dc >= 0 && o.kc + dc < 8 && o.b[(o.kr + fwd) * 8 + o.kc + dc] == en[5]) || range(8).any(n => indexOf(n < 4 ? [en[1], en[3]] : [en[2], en[3]], range(1, 8).filter(s => o.kr + s * STEPS[n][0] >= 0 && o.kr + s * STEPS[n][0] < 8 && o.kc + s * STEPS[n][1] >= 0 && o.kc + s * STEPS[n][1] < 8).map(s => o.b[(o.kr + s * STEPS[n][0]) * 8 + o.kc + s * STEPS[n][1]]).find(ch => ch != ".") ?? "#") >= 0)))[0])
 
   // ---- a new puzzle, or the same one again -------------------------------------------------------
   on pid first {
@@ -296,32 +308,10 @@ app "checkmate" {
       if mine {
         sel = sel == i ? -1 : i
       } else if sel >= 0 {
-        // does the piece move that way, over empty squares?
         let f = sel
-        let k = lower(board[f])
-        let fy = floor(f / 8)
-        let dx = i % 8 - f % 8
-        let dy = floor(i / 8) - fy
-        let ax = abs(dx)
-        let ay = abs(dy)
-        let clear = all(range(1, max(ax, ay)), s => board[f + s * (sign(dy) * 8 + sign(dx))] == ".")
-        let fwd = wtm ? -1 : 1
-        let pawnOk = (dx == 0 && dy == fwd && p == ".") || (dx == 0 && dy == 2 * fwd && fy == (wtm ? 6 : 1) && p == "." && board[f + fwd * 8] == ".") || (ax == 1 && dy == fwd && (p != "." || i == ep))
-        let shape = k == "n" ? (ax == 1 && ay == 2) || (ax == 2 && ay == 1) : k == "k" ? max(ax, ay) == 1 : k == "r" ? (dx == 0 || dy == 0) && clear : k == "b" ? ax == ay && clear : k == "q" ? (dx == 0 || dy == 0 || ax == ay) && clear : pawnOk
-        // and is the king safe after it?
-        let passant = k == "p" && i == ep && p == "."
-        let b1 = set(set(board, i, board[f]), f, ".")
-        let b2 = passant ? set(b1, fy * 8 + i % 8, ".") : b1
-        let ks = indexOf(b2, wtm ? "K" : "k")
-        let kr = floor(ks / 8)
-        let kc = ks % 8
-        let en = wtm ? ["n", "b", "r", "q", "k", "p"] : ["N", "B", "R", "Q", "K", "P"]
-        let jumpHit = JUMPS.any(d => kr + d[0] >= 0 && kr + d[0] < 8 && kc + d[1] >= 0 && kc + d[1] < 8 && b2[(kr + d[0]) * 8 + kc + d[1]] == en[0])
-        let kingHit = STEPS.any(d => kr + d[0] >= 0 && kr + d[0] < 8 && kc + d[1] >= 0 && kc + d[1] < 8 && b2[(kr + d[0]) * 8 + kc + d[1]] == en[4])
-        let pawnHit = [-1, 1].any(dc => kr + fwd >= 0 && kr + fwd < 8 && kc + dc >= 0 && kc + dc < 8 && b2[(kr + fwd) * 8 + kc + dc] == en[5])
-        // the first piece along each line from the king: a bishop or queen on a diagonal, a rook or queen on a straight
-        let rayHit = range(8).any(n => indexOf(n < 4 ? [en[1], en[3]] : [en[2], en[3]], range(1, 8).filter(s => kr + s * STEPS[n][0] >= 0 && kr + s * STEPS[n][0] < 8 && kc + s * STEPS[n][1] >= 0 && kc + s * STEPS[n][1] < 8).map(s => b2[(kr + s * STEPS[n][0]) * 8 + kc + s * STEPS[n][1]]).find(ch => ch != ".") ?? "#") >= 0)
-        let hit = jumpHit || kingHit || pawnHit || rayHit
+        let k = sk
+        let shape = indexOf(reach, i) >= 0
+        let hit = indexOf(targets, i) < 0
         if !shape || hit {
           sel = -1
           note = shape ? "Your king would be in check" : "It can't move there"
@@ -337,8 +327,8 @@ app "checkmate" {
             result = "mate"
           } else {
             // the answer: this move's own, else the position's, else the puzzle's
-            let own = ents.find(e => startsWith(e, upath + full + ">")) ?? ents.find(e => startsWith(e, upath + "*>")) ?? ents.find(e => startsWith(e, "F>"))
-            let reply = split(own, ">")[1]
+            let own = match(ents, " " + upath + full + ">([^ ]+)") ?? match(ents, " " + upath + "[*]>([^ ]+)") ?? match(ents, " F>([^ ]+)")
+            let reply = own[0]
             upath = upath + full
             uply = uply + 1
             if reply == "#" {
@@ -416,6 +406,10 @@ app "checkmate" {
         if indexOf(last, i) >= 0 { rect(x, y, sq, sq, fill: alpha(yellow, 0.42)) }
         if i == sel { rect(x, y, sq, sq, fill: alpha(accent, 0.55)) }
         if p != "." { image(get(PC, p), x + sq * 0.04, y + sq * 0.04, sq * 0.92, sq * 0.92) }
+        // where the selected piece can go: a dot, or a ring round a piece it takes
+        if indexOf(targets, i) >= 0 {
+          if p == "." { circle(x + sq / 2, y + sq / 2, sq * 0.15, fill: alpha(green, 0.8)) } else { circle(x + sq / 2, y + sq / 2, sq * 0.45, stroke: alpha(green, 0.8), width: sq * 0.07) }
+        }
         // the coordinates, inside the edge squares as on Lichess
         if c == 0 { text(str(8 - floor(i / 8)), x + 3, y + sq * 0.15, size: sq * 0.2, bold: true, color: lit ? dark : light) }
         if r == 7 { text(sub("abcdefgh", i % 8, i % 8 + 1), x + sq - 3, y + sq * 0.86, size: sq * 0.2, bold: true, color: lit ? dark : light, align: end) }
