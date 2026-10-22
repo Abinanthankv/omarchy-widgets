@@ -1,5 +1,5 @@
 widget "liga indonesia" {
-  meta { owl: 5; description: "Klub favoritmu (default Persik Kediri) di Super League Indonesia: posisi, form, laga berikutnya dan klasemen, dari FotMob"; version: "2.3"; license: "MIT"; category: "sport" }
+  meta { owl: 5; description: "Klub favoritmu (default Persik Kediri) di Super League Indonesia: posisi, form, laga berikutnya dan klasemen, dari FotMob"; version: "2.3.1"; license: "MIT"; category: "sport" }
   size: 6x5
   minSize: 3x3
 
@@ -202,12 +202,14 @@ widget "liga indonesia" {
         }
       }
 
-      if (rows ?? 5) >= 4 && lastGame != null {
+      // By height in dp, not rows: a row is a different height on every phone. The last match
+      // needs about 170dp, the table under it about 225dp.
+      if (tileHeight ?? 999) >= 170 && lastGame != null {
         Text { text: "terakhir · pekan ${lastGame.round}"; style: label }
         Match { m: lastGame }
       }
 
-      if (rows ?? 5) >= 5 && cols >= 4 {
+      if (tileHeight ?? 999) >= 225 && cols >= 4 {
         Column {
           gap: 3
           for t in around key t.id { TableRow { t: t } }
