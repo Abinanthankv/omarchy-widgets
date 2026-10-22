@@ -5,7 +5,7 @@ widget "xai" {
   meta {
     owl: 9
     description: "xAI subscription name, Cursor plan, X verification, and weekly usage from the local Grok and Cursor logins"
-    version: "1.1"
+    version: "1.1.1"
     license: "MIT"
     category: "dev"
   }
@@ -17,7 +17,7 @@ widget "xai" {
   // into curl, so they are not part of the printed JSON. Every request names
   // this widget in its User-Agent. The checkmark is is_blue_verified on the
   // public profile. Billing is fetched every 5 minutes; the plan, the Cursor
-  // plan, and the profile are hourly. A 3-row tile keeps the plan, Cursor,
+  // plan, and the profile are hourly. A short tile keeps the plan, Cursor,
   // X, and the week, and folds the rest into one line.
   source account = cmd("""
     ua='omarchy-widgets/xai (+https://github.com/SimonSchubert/omarchy-widgets)'
@@ -197,13 +197,16 @@ widget "xai" {
     ' || printf '%s\n' '{"ok":false}'
   """) every 1h json timeout 20s
 
-  let short = (rows ?? 4) < 4
+  // Pick the layout by height in dp, not rows: a row's height differs by phone.
+  // The full layout needs about 185dp; the product lines show when two fit, at 22dp each.
+  let short = (tileHeight ?? 999) < 185
+  let productRoom = floor(((tileHeight ?? 0) - 185) / 22)
   let planName = account.plan == "SuperGrok Plus" || account.plan == "SuperGrokPlus" ? "Super" : account.plan
   let title = account == null ? "…" : !account.ok ? (account.error ?? "offline") : (planName != null && planName != "" && planName != "xAI" ? planName : "xAI")
   let pct = billing.ok ? round(billing.pct) : null
   let pctColor = pct == null ? muted : pct >= 90 ? red : pct >= 75 ? yellow : accent
   let products = billing.products ?? []
-  let shownProducts = (rows ?? 4) >= 5 && len(products) > 1 ? products.take((rows ?? 4) >= 6 ? 3 : 2) : []
+  let shownProducts = !short && productRoom >= 2 && len(products) > 1 ? products.take(min(3, productRoom)) : []
   let cursorText = cplan == null ? "…" : (cplan.plan != null && cplan.plan != ""
     ? (cplan.price != null && cplan.price != "" ? "${cplan.plan} · ${cplan.price}" : cplan.plan)
     : (account.cursor ? "linked" : (cplan.ok ? "not linked" : "unavailable")))
