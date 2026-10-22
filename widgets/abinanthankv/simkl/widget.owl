@@ -1,8 +1,8 @@
 widget "simkl" {
   size: 6x4
   minSize: 3x4
-  meta { owl: 8; description: "Your next week of TV, anime and movies from Simkl: tile, posters and full screen. Tap login, approve the code on simkl.com, done"; version: "1.4"; license: "MIT"; category: "time" }
-  requires { pacman: ["python", "curl"] }
+  meta { owl: 9; description: "Your next week of TV, anime and movies from Simkl, plus what you watched lately: tile, posters and full screen. Tap login, approve the code on simkl.com, done"; version: "1.5"; license: "MIT"; category: "time" }
+  requires { pacman: ["python", "curl", "coreutils", "util-linux"] }
 
   let clientId = "95a4064f1187b0dd4846827dbbf0268d12ea8cec58ca89e323021f87eda269ed"
 
@@ -23,7 +23,8 @@ cat > "$t" <<'OWL_SIMKL_PY'
 # Subcommands:
 #   device-start <client_id>  start login and poll until approved, denied or expired
 #   check <client_id>         re-check the pending login once (the refresh button)
-#   fetch <days> <client_id>  print upcoming episodes/releases as JSON
+#   fetch <days> <client_id>  print upcoming episodes/releases, and the recent
+#                             watch history, as JSON
 #   logout                    forget the local token
 # Tokens live only in ~/.config/omarchy-simkl (mode 600); never in the widget.
 import io
@@ -278,39 +279,72 @@ def item_simkl_id(item):
     return node.get("simkl_id") or node.get("id")
 
 
-def watchlist(cid, token):
-    # One request per list, full enough to carry each item's imdb id (a few hundred
-    # KB in all), so the play links need no second lookup per show.
+def library(cid, token):
+    # One summary call for the whole library, instead of one per list: it carries
+    # each item's imdb id (for the play links) and last_watched_at (for the
+    # recently-watched tab), a few hundred KB in all.
+    data = api("/sync/all-items", cid, token)
     ids = {"shows": set(), "anime": set(), "movies": set()}
     imdb = {}
-    tasks = [(typ, st) for typ, statuses in STATUSES.items() for st in statuses]
-
-    def one(task):
-        typ, st = task
-        try:
-            data = api("/sync/all-items/%s/%s" % (typ, st), cid, token, "extended=full")
-        except urllib.error.HTTPError as e:
-            if e.code == 401:
-                raise
-            return typ, []
-        if not isinstance(data, dict):
-            return typ, []
-        out = []
-        for item in (data.get(typ) or []):
+    recent = []
+    for typ in ("shows", "anime", "movies"):
+        for item in ((data or {}).get(typ) or []):
             sid = item_simkl_id(item)
             if sid is None:
                 continue
-            ex = item_node(item).get("ids")
-            out.append((int(sid), ex.get("imdb") if isinstance(ex, dict) else None))
-        return typ, out
-
-    with ThreadPoolExecutor(max_workers=len(tasks)) as ex:
-        for typ, rows in ex.map(one, tasks):
-            for sid, im in rows:
+            sid = int(sid)
+            node = item_node(item)
+            if not isinstance(node, dict):
+                node = {}
+            ex = node.get("ids") if isinstance(node.get("ids"), dict) else {}
+            if item.get("status") in STATUSES[typ]:
                 ids[typ].add(sid)
-                if im:
-                    imdb[sid] = im
-    return ids, imdb
+                if ex.get("imdb"):
+                    imdb[sid] = ex["imdb"]
+            watched = item.get("last_watched_at") or ""
+            if not watched:
+                continue
+            try:
+                t = datetime.fromisoformat(watched.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                continue
+            recent.append({"t": int(t), "typ": typ, "sid": sid, "node": node, "item": item})
+    recent.sort(key=lambda r: r["t"], reverse=True)
+    return ids, imdb, recent
+
+
+RECENT_LIMIT = 15
+
+
+def recent_items(rows):
+    # The watch history: one row per title, newest first, with the episode it
+    # stopped at and how far through it is.
+    out = []
+    for r in rows[:RECENT_LIMIT]:
+        node, item, typ = r["node"], r["item"], r["typ"]
+        ids = node.get("ids") if isinstance(node.get("ids"), dict) else {}
+        if typ == "movies":
+            sub = "movie"
+        else:
+            sub = item.get("last_watched") or "watched"
+            seen, total = item.get("watched_episodes_count"), item.get("total_episodes_count")
+            if total:
+                sub += " · %s of %s" % (seen or 0, total)
+        slug = ids.get("slug") or ""
+        out.append({"t": r["t"], "kind": typ, "title": node.get("title") or "?",
+                    "sub": sub, "rel": node.get("poster"), "sid": r["sid"],
+                    "url": ("https://simkl.com/%s/%s" % (typ, slug)) if slug else "",
+                    "type": "movie" if typ == "movies" else "series",
+                    "imdb": ids.get("imdb") or "", "tmdb": ids.get("tmdb") or ""})
+    if out:
+        with ThreadPoolExecutor(max_workers=min(8, len(out))) as pool:
+            posters = list(pool.map(lambda i: poster_path(i["rel"], i["sid"]), out))
+        for it, p in zip(out, posters):
+            it["poster"] = p
+    for it in out:
+        it.pop("rel", None)
+        it.pop("sid", None)
+    return out
 
 
 def calendar(kind):
@@ -354,13 +388,13 @@ def cmd_fetch(days, cid):
     refresh_if_needed(cid)
     token = read_secret(TOKEN_F)
     try:
-        ids, imdb = watchlist(cid, token)
+        ids, imdb, recent = library(cid, token)
     except urllib.error.HTTPError as e:
         if e.code != 401:
             raise
         write_secret(EXPIRES_F, "0")
         refresh_if_needed(cid)
-        ids, imdb = watchlist(cid, read_secret(TOKEN_F))
+        ids, imdb, recent = library(cid, read_secret(TOKEN_F))
     name = fetch_user(cid, read_secret(TOKEN_F))
     now = time.time()
     # Start at midnight so today's releases stay listed: the widget shows a play
@@ -421,7 +455,7 @@ def cmd_fetch(days, cid):
     for it in items:
         it.pop("rel", None)
         it.pop("sid", None)
-    return {"user": name, "items": items}
+    return {"user": name, "items": items, "recent": recent_items(recent)}
 
 
 def main():
@@ -457,11 +491,15 @@ echo ok
 
   source dev = file("~/.config/omarchy-simkl/device.json") json
   source tok = file("~/.config/omarchy-simkl/token")
-  source now = clock every 1m
+  // Every tick re-renders the tile and an open screen, so it stays at 5m: the
+  // dates and "3h" labels below only need the minute.
+  source now = clock every 5m
 
   // android.apps lists the phone's launchable apps; the screen's settings let the user
   // pick which one the play button opens, since players take different deep links.
-  source apps = android.apps every 30m
+  // Only used to resolve the player the play button opens; installed apps don't
+  // change often enough to read them more than a few times a day.
+  source apps = android.apps every 6h
 
   source up = cmd("[ -s ~/.config/omarchy-simkl/token ] && python3 ~/.cache/omalauncher-simkl/simkl.py fetch 7 ${sh(clientId)} || echo '{}'") every 4h json timeout 90s
 
@@ -475,6 +513,7 @@ echo ok
   on signedIn { refresh() }
   let loading = up == null
   let items = up.items ?? []
+  let recent = up.recent ?? []
   let user = up.user ?? ""
   let code = dev.user_code ?? ""
   let pinUrl = dev.verification_uri_complete ?? "https://simkl.com/pin"
@@ -537,6 +576,29 @@ echo ok
         if openApp {
           Button { text: "play"; onTap: androidApp(playerPkg) }
         }
+      }
+    }
+  }
+
+  // A row of the watch history: what was watched last, when, and how far along.
+  component Recent(e) {
+    Row {
+      gap: 10
+      align: center
+      onTap: url(e.url)
+      if e.poster {
+        Image { src: e.poster; width: 40; height: 60; fit: cover; radius: 6 * corners }
+      } else {
+        Box { width: 40; height: 60; background: surface; radius: 6 * corners; align: center
+          Text { text: "?"; style: muted }
+        }
+      }
+      Column {
+        gap: 1
+        weight: 1
+        Text { text: e.title; style: body; maxLines: 1 }
+        Text { text: e.sub; style: small; color: muted; maxLines: 1 }
+        Text { text: "${fmtAgo(e.t, now ?? 0)} · ${fmtTime(e.t, "d MMM")}"; style: label; color: accent }
       }
     }
   }
@@ -606,7 +668,7 @@ echo ok
   }
 
   screen {
-    title: screenView == "settings" ? "simkl · settings" : (user == "" ? "simkl · upcoming" : user + " · upcoming")
+    title: screenView == "settings" ? "simkl · settings" : screenView == "recent" ? (user == "" ? "simkl · recent" : user + " · recent") : (user == "" ? "simkl · upcoming" : user + " · upcoming")
     Column {
       scroll: true
       gap: 10
@@ -614,6 +676,7 @@ echo ok
         gap: 8
         align: center
         Button { text: "upcoming"; onTap: screenView = "upcoming" }
+        Button { text: "recent"; onTap: screenView = "recent" }
         Button { text: "settings"; onTap: screenView = "settings" }
         Spacer { weight: 1 }
         Button { text: "close"; onTap: close() }
@@ -651,6 +714,20 @@ echo ok
         Spacer { size: 6 }
         if logged {
           Button { text: "sign out"; onTap: { run("python3 ~/.cache/omalauncher-simkl/simkl.py logout"); refresh() } }
+        }
+      } else if screenView == "recent" {
+        if logged {
+          if loading {
+            Text { text: "loading…"; style: muted }
+          } else if len(recent) == 0 {
+            Text { text: "nothing watched yet"; style: muted }
+          } else {
+            for e in recent key e.t {
+              Recent { e: e }
+            }
+          }
+        } else {
+          Text { text: "Connect your Simkl account to see what you've watched lately."; style: muted }
         }
       } else {
         if logged {
