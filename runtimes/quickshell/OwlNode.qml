@@ -53,6 +53,16 @@ Item {
   transform: Translate {
     x: Array.isArray(root.p.offset) ? L.num(root.p.offset[0], 0) * root.dp : 0
     y: Array.isArray(root.p.offset) ? L.num(root.p.offset[1], 0) * root.dp : 0
+    // animate offset (owl 13): while the node's own onDrag has the finger the offset follows it as it is; let go,
+    // it eases to where onDragEnd puts it.
+    Behavior on x {
+      enabled: !!root.anim.offset && !dragger.active
+      NumberAnimation { duration: root.ms(root.anim.offset); easing.type: root.easing(root.anim.offset) }
+    }
+    Behavior on y {
+      enabled: !!root.anim.offset && !dragger.active
+      NumberAnimation { duration: root.ms(root.anim.offset); easing.type: root.easing(root.anim.offset) }
+    }
   }
 
   function ms(a) {
@@ -170,16 +180,61 @@ Item {
     onLongPressed: if (root.handlers.onLongPress) root.handlers.onLongPress(point.position.x / root.dp, point.position.y / root.dp)
   }
 
+  // drag: horizontal or vertical (owl 13) takes moves along it alone, so a list it's in still scrolls the other
+  // way; onDragEnd gets how fast the finger was going as it let go, in dp a second.
   DragHandler {
+    id: dragger
     enabled: !!root.handlers.onDrag
     target: null
+    xAxis.enabled: root.p.drag !== "vertical"
+    yAxis.enabled: root.p.drag !== "horizontal"
     property point last: Qt.point(0, 0)
-    onActiveChanged: if (active) last = Qt.point(0, 0)
+    property vector2d speed: Qt.vector2d(0, 0)
+    onActiveChanged: {
+      if (active) {
+        last = Qt.point(0, 0)
+        speed = Qt.vector2d(0, 0)
+      } else if (root.handlers.onDragEnd) {
+        root.handlers.onDragEnd(xAxis.enabled ? speed.x / root.dp : 0, yAxis.enabled ? speed.y / root.dp : 0)
+      }
+    }
     onTranslationChanged: {
-      var dx = (translation.x - last.x) / root.dp
-      var dy = (translation.y - last.y) / root.dp
+      var dx = xAxis.enabled ? (translation.x - last.x) / root.dp : 0
+      var dy = yAxis.enabled ? (translation.y - last.y) / root.dp : 0
       last = Qt.point(translation.x, translation.y)
+      speed = centroid.velocity
       root.handlers.onDrag(dx, dy, centroid.position.x / root.dp, centroid.position.y / root.dp)
+    }
+  }
+
+  // onPress as the finger goes down, before it's a tap, and onRelease when it lifts or a scroll takes it (owl 12).
+  // With repeats: true onPress runs again while it stays down, after 400 ms and then every 50 ms.
+  PointHandler {
+    id: presser
+    enabled: !!root.handlers.onPress || !!root.handlers.onRelease
+    property int repeat: 0
+    onActiveChanged: {
+      if (active) {
+        repeat = 0
+        if (root.handlers.onPress) root.handlers.onPress(point.position.x / root.dp, point.position.y / root.dp, 0)
+        if (root.p.repeats === true) repeater.start()
+      } else {
+        repeater.stop()
+        if (root.handlers.onRelease) root.handlers.onRelease()
+      }
+    }
+  }
+
+  Timer {
+    id: repeater
+    interval: 400
+    repeat: true
+    onRunningChanged: if (!running) interval = 400
+    onTriggered: {
+      interval = 50
+      presser.repeat++
+      if (presser.active && root.handlers.onPress)
+        root.handlers.onPress(presser.point.position.x / root.dp, presser.point.position.y / root.dp, presser.repeat)
     }
   }
 
@@ -864,6 +919,9 @@ Item {
         font.pixelSize: L.num(root.p.fontSize, 14) * root.dp
         font.family: root.family("sans")
         clip: true
+        // password: true (owl 12): dots for what's typed, and no suggestions that would learn it.
+        echoMode: root.p.password === true ? TextInput.Password : TextInput.Normal
+        inputMethodHints: root.p.password === true ? Qt.ImhSensitiveData | Qt.ImhNoPredictiveText | Qt.ImhHiddenText : Qt.ImhNone
         text: root.p.text === undefined || root.p.text === null || root.p.text === "…" ? "" : String(root.p.text)
         onTextEdited: if (root.handlers.onChange) root.handlers.onChange(field.text)
         Component.onCompleted: if (root.p.focus === true) forceActiveFocus()

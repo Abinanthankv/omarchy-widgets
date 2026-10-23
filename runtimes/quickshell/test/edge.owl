@@ -1,5 +1,5 @@
 widget "edge" {
-  meta { owl: 11 }
+  meta { owl: 13 }
   source raw = cmd("printf '%s' '{\"b\":2,\"a\":[1,\"2\",null,true],\"10\":\"x\",\"2\":\"y\",\"n\":-0.5}'") json
   source txt = cmd("printf ' 81%% \n\nnext line \n'")
   source now = clock every 1s
@@ -9,6 +9,7 @@ widget "edge" {
   let h = history(count, 5)
   let p = prev(count)
   state open = false
+  state missing = null
   state seed = random(1000000)
   asset face = base64"AAEAAAA="
   on count first { seed = random(1, 6); open = shuffle([1, 2]) == [1, 2] }
@@ -80,6 +81,25 @@ widget "edge" {
       round(999998000001, 8), round(2.5), round(0.49999999999999994), round(-0.5), round(1000000000000000000000 * 1000000000000000000000, 2), round(4503599627370497), round(1.23456, 3)
     ] {
       Text { text: "${i}: ${e}" }
+    }
+    // owl 12 and 13, and what changed at every level
+    for e, i in [
+      toBase64("héllo €"), toBase64(""), toBase64(null), toBase64(12), fromBase64("aMOpbGxvIOKCrA"), fromBase64("aGk-_w=="), fromBase64(" aGk=\n"),
+      fromBase64("!!"), fromBase64("a"), fromBase64("aGk=aGk="), fromBase64("/w"), fromBase64(toBase64("round ✓ trip")), fromBase64(null),
+      fmtTime(sqrt(-1), "HH:mm"), fmtNum(sqrt(-1)), fmtNum(sqrt(-1), {compact: true}), sqrt(-1) < 1, sqrt(-1) > 1, sqrt(-1) == sqrt(-1), "NaN" > 1, "NaN" <= "NaN",
+      -0 < 0, -0 >= 0, 0 > -0, sort([1, -0, 0, sqrt(-1), -1, "NaN"]), sortBy([3, sqrt(-1), 1], x => x), min([sqrt(-1), 1]), max([2, sqrt(-1)]),
+      parseTime("2026-10-17T10:04:00+99:99"), parseTime("2026-10-17T10:04:00+18:00"), parseTime("2026-10-17T10:04:00-19"),
+      "${missing}/x", gapsIn, gapsOut, borderWidth, tileOpacity, tileFrost
+    ] {
+      Text { text: "${i}: ${e}" }
+    }
+    Image { src: "https://img.example.com/${missing}.png" }
+    Image { src: open ? "https://img.example.com/${count}.png" : "https://img.example.com/${enc(missing)}.png" }
+    Row {
+      Box { drag: horizontal; offset: [count, 0]; animate offset: 300ms; onDrag: count = count + dx; onDragEnd: count = vx > 100 ? 1 : 0; Text { text: "drag" } }
+      Text { text: "hold"; repeats: true; onPress: count = count + repeat; onRelease: open = false }
+      Button { text: "keys"; onTap: { pressKey("ctrl+c"); typeText("ls"); latch("shift", "locked"); settings("wifi"); dnd("priority"); torch(30); volume(20, "alarm") } }
+      Button { text: "cards"; onTap: notification("snooze", "k", 300) }
     }
     Text { text: fmtTime(now, "H", "Mars/" + txt) }
     Text { text: fmtNum(5, txt) }

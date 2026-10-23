@@ -8,8 +8,9 @@ pragma ComponentBehavior: Bound
 // writes too, in the same place, because that file is what an agent writing
 // a widget is told to read (docs/widgets.md).
 //
-// `state x = ... persist` survives in ~/.local/state/omarchy-mobile/widgets/
-// <file>.json.
+// `state x = ... persist` survives in <stateDir>/<file>.json, and `state x = null
+// secret` in <stateDir>/<file>.secrets.json, which only the user can read: a
+// desktop has no keystore to encrypt it with, as the launcher does.
 
 import QtQuick
 import QtQml
@@ -98,6 +99,8 @@ Item {
   property string sourceText: ""
   property var persisted: null
   property bool stateRead: false
+  property var secrets: null
+  property bool secretsRead: false
 
   FileView {
     id: sourceFile
@@ -132,8 +135,26 @@ Item {
     }
   }
 
+  FileView {
+    id: secretFile
+    path: root.fileName ? root.stateDir + "/" + root.fileName + ".secrets.json" : ""
+    printErrors: false
+    // Written in place, so it keeps the mode it was made with.
+    atomicWrites: false
+    onLoaded: {
+      try { root.secrets = JSON.parse(text()) } catch (e) { root.secrets = {} }
+      root.secretsRead = true
+      root.load()
+    }
+    onLoadFailed: {
+      root.secrets = {}
+      root.secretsRead = true
+      root.load()
+    }
+  }
+
   function load() {
-    if (!root.stateRead || root.sourceText === "") return
+    if (!root.stateRead || !root.secretsRead || root.sourceText === "") return
     var program
     try {
       program = Owl.compile(root.sourceText)
@@ -145,7 +166,7 @@ Item {
     root.problems = []
     writeErrors()
     root.program = program
-    root.instance = new Owl.Instance(program, root.bridge, root.persisted || {})
+    root.instance = new Owl.Instance(program, root.bridge, root.persisted || {}, root.secrets || {})
     root.sourceSpecs = root.instance.sources()
     root.everySpecs = root.instance.everyTriggers()
     root.render()
@@ -184,11 +205,14 @@ Item {
       if (name === "screenInset") return 0
       // Omarchy's corners are square.
       if (name === "corners") return 0
+      // The board's gaps and borders, and its tiles' glass (owl 12 and 13).
+      if (name === "gapsIn" || name === "gapsOut" || name === "borderWidth" || name === "tileOpacity" || name === "tileFrost")
+        return root.host[name]
       return null
     },
     act: function(name, args) { root.act(name, args) },
     runInto: function(command, slot) { root.runInto(command, slot) },
-    post: function(url, body, headers, slot) { root.post(url, body, headers, slot) },
+    post: function(url, body, headers, slot, method) { root.post(url, body, headers, slot, method) },
     report: function(message) { root.report(message) },
     changed: function() { root.changed() }
   })
@@ -357,15 +381,16 @@ Item {
   property var runs: []
 
   // post(url, body, headers): a map or list body goes as JSON, anything else as
-  // its text. With a slot, the answer lands there as {code, ok, out}; a 2xx
-  // refreshes the widget's sources, since what it changed shows in them.
-  function post(url, body, headers, slot) {
+  // its text, with method: PUT, PATCH or DELETE (owl 12) instead of POST. With a
+  // slot, the answer lands there as {code, ok, out}; a 2xx refreshes the widget's
+  // sources, since what it changed shows in them.
+  function post(url, body, headers, slot, method) {
     var json = Array.isArray(body) || body instanceof Map
     var xhr = new XMLHttpRequest()
     xhr.onreadystatechange = function() {
       if (xhr.readyState !== XMLHttpRequest.DONE) return
       var ok = xhr.status >= 200 && xhr.status < 300
-      if (!ok && slot === null) root.report("post: HTTP " + xhr.status + " from " + url)
+      if (!ok && slot === null) root.report("post: HTTP " + xhr.status + " from " + url.replace(/\?.*/, "?…"))
       if (slot !== null && root.instance) {
         var text = xhr.responseText || ""
         var out = null
@@ -374,7 +399,7 @@ Item {
       }
       if (ok) root.refresh()
     }
-    xhr.open("POST", url)
+    xhr.open(method || "POST", url)
     var typed = false
     for (var k in headers) {
       xhr.setRequestHeader(k, String(headers[k]))
@@ -453,6 +478,7 @@ Item {
     interval: 500
     onTriggered: {
       if (!root.instance) return
+      saveSecrets()
       var data = root.instance.persisted()
       if (Object.keys(data).length === 0) return
       var text = JSON.stringify(data)
@@ -460,6 +486,19 @@ Item {
       root.persisted = data
       ensureDir(root.stateDir, function() { stateFile.setText(text + "\n") })
     }
+  }
+
+  // Secrets go to a file only the user can read, made so before anything is written to it. One that's
+  // been signed out of empties it.
+  function saveSecrets() {
+    var data = root.instance.secrets()
+    var text = JSON.stringify(data)
+    if (text === JSON.stringify(root.secrets || {})) return
+    root.secrets = data
+    var p = mkdir.createObject(root, { command: ["bash", "-c", "mkdir -p \"$1\" && umask 077 && touch \"$2\" && chmod 600 \"$2\"", "owl",
+      root.stateDir, secretFile.path] })
+    p.exited.connect(function() { secretFile.setText(text + "\n"); p.destroy(1000) })
+    p.running = true
   }
 
   // -------------------------------------------------------------- errors

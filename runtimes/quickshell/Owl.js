@@ -53,6 +53,14 @@ function WidgetError(message) {
   this.message = message
 }
 
+// The most text one value may hold, in characters: doubling a text in a reduce takes a few steps and
+// gigabytes of memory.
+var MAX_TEXT = 4 << 20
+
+function checkText(length) {
+  if (length > MAX_TEXT) throw new WidgetError("text over " + (MAX_TEXT >> 20) + "M characters")
+}
+
 function isObj(v) { return v instanceof Map }
 
 function truthy(v) {
@@ -79,6 +87,12 @@ function num(v) {
   }
   if (typeof v === "boolean") return v ? 1 : 0
   return null
+}
+
+// Kotlin's String.toDoubleOrNull: java's double syntax, with control characters and spaces around it.
+function javaDouble(t) {
+  t = t.replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, "")
+  return NUMBER_TEXT.test(t) ? parseFloat(t.replace(/[fFdD]$/, "")) : null
 }
 
 // What a number prints as in the launcher, Num.toString: as JavaScript writes
@@ -149,11 +163,25 @@ function show(v) {
   if (typeof v === "number") return numText(v)
   if (typeof v === "string") return v
   if (typeof v === "boolean") return v ? "true" : "false"
-  if (Array.isArray(v)) return "[" + v.map(show).join(", ") + "]"
+  // A list of itself repeated is small, but its text isn't: it stops at MAX_TEXT.
+  if (Array.isArray(v)) {
+    var s = "["
+    for (var i = 0; i < v.length; i++) {
+      if (i > 0) s += ", "
+      s += show(v[i])
+      checkText(s.length)
+    }
+    return s + "]"
+  }
   if (v instanceof Map) {
-    var out = []
-    v.forEach(function(value, key) { out.push(key + ": " + show(value)) })
-    return "{" + out.join(", ") + "}"
+    var m = "{", first = true
+    v.forEach(function(value, key) {
+      if (!first) m += ", "
+      first = false
+      m += key + ": " + show(value)
+      checkText(m.length)
+    })
+    return m + "}"
   }
   if (v instanceof Col) return v.theme !== null ? v.theme : hex8(v.argb)
   if (v instanceof Fn) return "<fn>"
@@ -357,6 +385,18 @@ function trimIndent(s) {
   return lines.map(function(l) { return l.trim() === "" ? "" : l.slice(indent) }).join("\n")
 }
 
+// A decimal written out, times 10^exp, as java's BigDecimal.scaleByPowerOfTen(exp).stripTrailingZeros().toPlainString().
+function scaledDecimal(written, exp) {
+  var dot = written.indexOf(".")
+  var digitsOnly = written.replace(".", "")
+  var point = (dot < 0 ? written.length : dot) + exp
+  while (point > digitsOnly.length) digitsOnly += "0"
+  while (point < 1) { digitsOnly = "0" + digitsOnly; point++ }
+  var whole = digitsOnly.slice(0, point).replace(/^0+(?=\d)/, "")
+  var frac = digitsOnly.slice(point).replace(/0+$/, "")
+  return frac ? whole + "." + frac : whole
+}
+
 function lex(src, start, end) {
   var i = start === undefined ? 0 : start
   var stop = end === undefined ? src.length : end
@@ -414,8 +454,15 @@ function lex(src, start, end) {
     if (unit === "h") v *= 3600
     else if (unit === "m" || unit === "min") v *= 60
     else if (unit === "ms") v /= 1000
-    else if (unit !== "" && unit !== "s" && unit !== "dp" && unit !== "px" && unit !== "deg")
+    else if (unit !== "" && unit !== "s" && unit !== "dp" && unit !== "px" && unit !== "deg") {
+      // 1e9: habit from other languages; say what to write instead.
+      var em = /^[eE]([+-]?\d+)/.exec(src.slice(us))
+      var exp = em ? parseInt(em[1], 10) : null
+      if (exp !== null && exp >= -12 && exp <= 15)
+        throw new CompileError("unknown unit '" + unit + "': numbers have no exponents, so write " + src.slice(s, us + em[0].length)
+          + " as " + scaledDecimal(src.slice(s, us), exp), us)
       throw new CompileError("unknown unit '" + unit + "'", us)
+    }
     add(token(T_NUM, src.slice(s, i), s, nl, { num: v }))
   }
 
@@ -574,19 +621,26 @@ Parser.prototype = {
     if (this.isId(this.t(), "persist") && !this.t().nl) { this.p++; return true }
     return false
   },
+  // A trailing `secret` on the same line as a state.
+  secret: function() {
+    if (this.isId(this.t(), "secret") && !this.t().nl) { this.p++; return true }
+    return false
+  },
   ident: function(what) {
     if (this.t().type !== T_IDENT) this.fail("expected " + (what || "a name") + ", found " + this.desc(this.t()))
     return this.next().text
   },
 
   // What the file is, from its first word: a widget, a face (a whole home
-  // page), an app or a panel. This runtime draws widgets and faces; it has no
-  // app drawer, and no home screen to swipe a panel out of.
+  // page), an app, a panel or a key bar. This runtime draws widgets and faces; it
+  // has no app drawer, no home screen to swipe a panel out of, and no soft keyboard
+  // for the extra keys to sit over.
   widget: function() {
-    var kind = ["widget", "face", "app", "panel"].filter(function(w) { return this.isId(this.t(), w) }, this)[0]
-    if (!kind) this.fail("an owl file starts with: widget \"name\" {, face \"name\" {, app \"name\" { or panel \"name\" {")
+    var kind = ["widget", "face", "app", "panel", "keybar"].filter(function(w) { return this.isId(this.t(), w) }, this)[0]
+    if (!kind) this.fail("an owl file starts with: widget \"name\" {, face \"name\" {, app \"name\" {, panel \"name\" { or keybar \"name\" {")
     if (kind === "app") this.fail("this is an app, and only the launcher has an app drawer to open it from")
     if (kind === "panel") this.fail("this is a panel, and only the launcher has the home screen and prompt bar that open it")
+    if (kind === "keybar") this.fail("this is a key bar, and only the launcher has the soft keyboard it sits over")
     this.next()
     var name = this.t().type === T_STR ? this.literalString(this.next()) : null
     this.punct("{")
@@ -735,7 +789,15 @@ Parser.prototype = {
     }
     this.punct("=")
     if (kw.text === "let") return { kind: "let", name: name, value: this.expr(), pos: kw.pos, persist: this.persist() }
-    if (kw.text === "state") return { kind: "state", name: name, init: this.expr(), pos: kw.pos, persist: this.persist() }
+    if (kw.text === "state") {
+      var init = this.expr()
+      // In either order, so both together get a clear error.
+      var persist = this.persist()
+      var secret = this.secret()
+      if (!persist) persist = this.persist()
+      if (persist && secret) this.fail("a secret is kept already; it's state x = null secret, without persist")
+      return { kind: "state", name: name, init: init, pos: kw.pos, persist: persist, secret: secret }
+    }
     if (kw.text === "asset") {
       if (!this.isId(this.t(), "base64")) this.fail("expected base64\"...\"")
       this.next()
@@ -980,10 +1042,11 @@ for (var ci = 0; ci <= 15; ci++) THEME.push("color" + ci)
 var CONSTANTS = { pi: Math.PI, transparent: new Col(null, 0, 1) }
 
 var ACTIONS = {
-  terminal: [1, 2], app: [1, 1], run: [1, 1], url: [1, 1], launcher: [1, 1], refresh: [0, 1],
-  media: [1, 1], androidApp: [1, 1], copy: [1, 1], notify: [1, 2], volume: [1, 1],
-  notification: [2, 2], screen: [0, 0], close: [0, 0], torch: [1, 1], share: [1, 1], haptic: [0, 0], sound: [1, 1], post: [1, 3],
-  open: [1, 1], ask: [1, 2], appAction: [2, 2], workApps: [1, 1], shortcuts: [1, 1]
+  terminal: [1, 2], app: [1, 1], run: [1, 1], post: [1, 3], url: [1, 1], launcher: [1, 1], refresh: [0, 1],
+  media: [1, 1], androidApp: [1, 1], copy: [1, 1], notify: [1, 2], volume: [1, 2],
+  notification: [1, 3], screen: [0, 0], close: [0, 0], torch: [1, 1], dnd: [1, 1], share: [1, 1], haptic: [0, 0], sound: [1, 1],
+  open: [1, 1], ask: [1, 2], appAction: [2, 2], workApps: [1, 1], shortcuts: [1, 1],
+  pressKey: [1, 1], typeText: [1, 1], latch: [1, 2], settings: [1, 1]
 }
 
 function Args(args, host) {
@@ -1135,9 +1198,17 @@ function rankMatches(items, query) {
 
 function lst(items) { return items.length > 1000 ? items.slice(0, 1000) : items }
 
+// As java's Double.compareTo on x + 0.0: -0 is zero, and NaN sorts above everything, equal to itself.
+function numCompare(x, y) {
+  if (x < y) return -1
+  if (x > y) return 1
+  if (x === y) return 0
+  return x !== x ? (y !== y ? 0 : 1) : -1
+}
+
 function compare(a, b) {
   var x = num(a), y = num(b)
-  if (x !== null && y !== null) return x < y ? -1 : x > y ? 1 : 0
+  if (x !== null && y !== null) return numCompare(x, y)
   var s = show(a), t = show(b)
   return s < t ? -1 : s > t ? 1 : 0
 }
@@ -1631,7 +1702,8 @@ function parseTime(textIn, pattern, z) {
     var oz = z
     if (offset !== "") {
       var om = offsetMinutes(offset)
-      if (om === null) throw new WidgetError("parseTime: Invalid ID for ZoneOffset, invalid format: " + offset)
+      // An offset past ±18:00 (+99:99) isn't one: null, like any text that isn't a date.
+      if (om === null) return null
       oz = fixedZone(om)
     }
     return epochOf(part(1), part(2) - 1, part(3), part(4), part(5), part(6), nanos, oz, false)
@@ -1857,26 +1929,31 @@ function edited(v, key, to) {
 }
 
 // Json.write: JSON text of numbers, text, lists and maps; null for anything else.
-function jsonText(v) {
+function jsonText(v, limit) {
   if (v === null || v === undefined) return "null"
   if (typeof v === "boolean") return v ? "true" : "false"
   if (typeof v === "number") return isFinite(v) ? numText(v) : "null"
   if (typeof v === "string") return jsonQuote(v)
   if (Array.isArray(v)) {
-    var items = []
+    var items = [], size = 0
     for (var i = 0; i < v.length; i++) {
-      var t = jsonText(v[i])
+      var t = jsonText(v[i], limit)
       if (t === null) return null
       items.push(t)
+      if (limit !== undefined) { size += t.length + 1; if (size > limit) throw new WidgetError("JSON over " + (limit >> 20) + "M characters") }
     }
     return "[" + items.join(",") + "]"
   }
   if (v instanceof Map) {
-    var out = [], bad = false
+    var out = [], bad = false, total = 0
     v.forEach(function(value, key) {
-      var t = bad ? null : jsonText(value)
+      var t = bad ? null : jsonText(value, limit)
       if (t === null) bad = true
-      else out.push(jsonQuote(key) + ":" + t)
+      else {
+        var entry = jsonQuote(key) + ":" + t
+        out.push(entry)
+        if (limit !== undefined) { total += entry.length + 1; if (total > limit) throw new WidgetError("JSON over " + (limit >> 20) + "M characters") }
+      }
     })
     return bad ? null : "{" + out.join(",") + "}"
   }
@@ -1967,6 +2044,82 @@ function padStr(s, w, c) {
 
 function linesOf(s) { return s.split(/\r\n|\n|\r/) }
 
+// Text as UTF-8 bytes, as java's String.toByteArray(): a lone surrogate is "?".
+function utf8Bytes(s) {
+  var out = []
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charCodeAt(i)
+    if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xFC00) === 0xDC00) {
+      c = 0x10000 + ((c - 0xD800) << 10) + (s.charCodeAt(++i) - 0xDC00)
+    } else if (c >= 0xD800 && c <= 0xDFFF) c = 0x3F
+    if (c < 0x80) out.push(c)
+    else if (c < 0x800) out.push(0xC0 | c >> 6, 0x80 | c & 63)
+    else if (c < 0x10000) out.push(0xE0 | c >> 12, 0x80 | c >> 6 & 63, 0x80 | c & 63)
+    else out.push(0xF0 | c >> 18, 0x80 | c >> 12 & 63, 0x80 | c >> 6 & 63, 0x80 | c & 63)
+  }
+  return out
+}
+
+// UTF-8 bytes as text, a malformed sequence as U+FFFD, as java's new String(bytes, UTF_8).
+function utf8Text(b) {
+  var out = ""
+  var i = 0
+  while (i < b.length) {
+    var c = b[i]
+    var n = c < 0x80 ? 0 : c >= 0xC2 && c <= 0xDF ? 1 : c >= 0xE0 && c <= 0xEF ? 2 : c >= 0xF0 && c <= 0xF4 ? 3 : -1
+    if (n < 0) { out += "\uFFFD"; i++; continue }
+    var cp = n === 0 ? c : c & (0x3F >> n)
+    var ok = 1
+    for (; ok <= n; ok++) {
+      var x = b[i + ok]
+      // The second byte's range rules out overlong forms, surrogates and code points past U+10FFFF.
+      var lo = 0x80, hi = 0xBF
+      if (ok === 1) {
+        if (c === 0xE0) lo = 0xA0
+        else if (c === 0xED) hi = 0x9F
+        else if (c === 0xF0) lo = 0x90
+        else if (c === 0xF4) hi = 0x8F
+      }
+      if (x === undefined || x < lo || x > hi) break
+      cp = cp << 6 | x & 63
+    }
+    if (ok <= n) { out += "\uFFFD"; i += ok; continue }
+    out += String.fromCharCode.apply(null, cp >= 0x10000 ? [0xD800 + (cp - 0x10000 >> 10), 0xDC00 + (cp - 0x10000 & 1023)] : [cp])
+    i += n + 1
+  }
+  return out
+}
+
+var BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+function toBase64(b) {
+  var out = ""
+  for (var i = 0; i < b.length; i += 3) {
+    var n = b[i] << 16 | (i + 1 < b.length ? b[i + 1] << 8 : 0) | (i + 2 < b.length ? b[i + 2] : 0)
+    out += BASE64.charAt(n >> 18 & 63) + BASE64.charAt(n >> 12 & 63)
+      + (i + 1 < b.length ? BASE64.charAt(n >> 6 & 63) : "=") + (i + 2 < b.length ? BASE64.charAt(n & 63) : "=")
+  }
+  return out
+}
+
+// Padded base64 as bytes, as java's Base64 decoder reads it; null for anything else.
+function fromBase64(s) {
+  if (s.length % 4 || !/^[A-Za-z0-9+\/]*(==?)?$/.test(s)) return null
+  var body = s.replace(/=+$/, "")
+  if (body.length % 4 === 1) return null
+  var out = []
+  var bits = 0, acc = 0
+  for (var i = 0; i < body.length; i++) {
+    acc = acc << 6 | BASE64.indexOf(body.charAt(i))
+    bits += 6
+    if (bits >= 8) {
+      bits -= 8
+      out.push(acc >> bits & 255)
+    }
+  }
+  return out
+}
+
 function splitStr(s, sep) {
   if (sep === "") {
     var out = [""]
@@ -2037,10 +2190,19 @@ var BUILTINS = {
   words: B(1, 1, function(a) { return lst(a.str(0).trim().split(/\s+/).filter(function(w) { return w.length > 0 })) }),
   split: B(2, 2, function(a) { return lst(splitStr(a.str(0), a.str(1))) }),
   join: B(1, 2, function(a) {
-    return a.list(0).map(function(v) { return typeof v === "string" ? v : show(v) }).join(a.size > 1 ? a.str(1) : "")
+    var sep = a.size > 1 ? a.str(1) : ""
+    var out = ""
+    a.list(0).forEach(function(v, i) {
+      if (i > 0) out += sep
+      out += typeof v === "string" ? v : show(v)
+      checkText(out.length)
+    })
+    return out
   }),
   replace: B(3, 3, function(a) {
     var s = a.str(0), f = a.str(1), r = a.str(2)
+    // "a" for every character of a long text multiplies it.
+    if (r.length > f.length && f.length > 0) checkText(Math.floor(s.length / f.length) * r.length + s.length)
     if (f === "") return splitStr(s, "").join(r)
     return s.split(f).join(r)
   }),
@@ -2095,6 +2257,8 @@ var BUILTINS = {
   })),
   // fmtTime(seconds, "HH:mm"): java.time patterns in the shell's time zone; owl 9 takes a zone and a language too.
   fmtTime: B(2, 4, strict(function(a) {
+    // NaN and infinity aren't times: null, as for a value still loading, rather than 1970's midnight.
+    if (!isFinite(a.num(0))) return null
     var z = zone(a.get(2))
     try { return fmtTime(a.num(0), a.str(1), z, a.str(3)) } catch (e) { throw new WidgetError("bad time pattern '" + a.str(1) + "'") }
   })),
@@ -2105,6 +2269,7 @@ var BUILTINS = {
   fmtAgo: B(2, 2, strict(function(a) { return a.get(1) === null ? null : fmtAgo(a.num(1) - a.num(0)) })),
   // owl 9: fmtNum(x, digits) or fmtNum(x, {digits, compact, sign}). Not folded: it's in the phone's language.
   fmtNum: B(1, 2, strict(function(a) {
+    if (!isFinite(a.num(0))) return null
     var o = a.get(1)
     if (o instanceof Map) {
       var dg = o.has("digits") ? num(o.get("digits")) : null
@@ -2132,6 +2297,15 @@ var BUILTINS = {
     return out
   }),
   parseJson: B(1, 1, function(a) { return parseOrText(a.str(0)) }),
+  // owl 12: text as base64 and back; fromBase64 also reads base64url, with or without padding, and gives null
+  // for anything else.
+  toBase64: B(1, 1, function(a) { return toBase64(utf8Bytes(a.str(0))) }),
+  fromBase64: B(1, 1, function(a) {
+    var s = a.str(0).replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/").replace(/=+$/, "")
+    while (s.length % 4) s += "="
+    var bytes = fromBase64(s)
+    return bytes === null ? null : utf8Text(bytes)
+  }),
   range: B(1, 3, function(a) {
     var from = a.size === 1 ? 0 : a.num(0)
     var to = a.size === 1 ? a.num(0) : a.num(1)
@@ -2311,7 +2485,7 @@ var BUILTINS = {
   }),
   // owl 9: JSON text, for a post body built by hand, a file or a command.
   toJson: B(1, 1, function(a) {
-    var t = jsonText(a.get(0))
+    var t = jsonText(a.get(0), MAX_TEXT)
     if (t === null) throw new WidgetError("toJson takes numbers, text, lists and maps, not colors or functions")
     return t
   }),
@@ -2391,10 +2565,13 @@ function arith(f) {
   }
 }
 
+// Nothing compares with NaN ("NaN" is a number), or with null.
 function cmp(test) {
   return function(a, b) {
-    if (typeof a === "number" && typeof b === "number") return test(a < b ? -1 : a > b ? 1 : a === b ? 0 : (a !== a ? (b !== b ? 0 : 1) : -1))
+    if (typeof a === "number" && typeof b === "number") return a !== a || b !== b ? false : test(numCompare(a, b))
     if (a === null || b === null) return false
+    var x = num(a), y = num(b)
+    if (x !== null && x !== x || y !== null && y !== y) return false
     return test(compare(a, b))
   }
 }
@@ -2404,8 +2581,11 @@ var OPERATORS = {
     if (typeof a === "number" && typeof b === "number") return a + b
     if (Array.isArray(a) && Array.isArray(b)) return lst(a.concat(b))
     // Strings join as written ("- " + x keeps its space); only other values are formatted.
-    if (typeof a === "string" || typeof b === "string")
-      return (typeof a === "string" ? a : text(a)) + (typeof b === "string" ? b : text(b))
+    if (typeof a === "string" || typeof b === "string") {
+      var x0 = typeof a === "string" ? a : text(a), y0 = typeof b === "string" ? b : text(b)
+      checkText(x0.length + y0.length)
+      return x0 + y0
+    }
     var x = num(a), y = num(b)
     return x !== null && y !== null ? x + y : null
   },
@@ -2423,7 +2603,7 @@ var OPERATORS = {
 
 // ---------------------------------------------------------------- compiler
 
-var LEVEL = 11
+var LEVEL = 13
 var MAX_NODES = 500
 var MAX_SCREEN_NODES = 1000
 var MAX_ASSET_BYTES = 2097152
@@ -2447,14 +2627,14 @@ var KINDS = {
   Spacer: [[], "none"],
   Terminal: [["command", "fontSize"], "none"],
   Slider: [["value", "min", "max", "step", "color", "track", "live"], "none"],
-  Input: [["text", "placeholder", "color", "fontSize", "clear", "focus", "underline"], "none"],
+  Input: [["text", "placeholder", "color", "fontSize", "clear", "focus", "underline", "password"], "none"],
   // owl 10: a menu over everything else, next to the node that holds it.
   Popup: [["position", "gap", "align"], "ui"]
 }
 var KIND_NAMES = Object.keys(KINDS)
 var COMMON = ["width", "height", "size", "fill", "weight", "padding", "background", "border", "borderColor",
-  "radius", "opacity", "rotation", "scale", "offset", "clip", "visible", "frost"]
-var ANIMATABLE = ["opacity", "rotation", "scale", "value", "color", "background"]
+  "radius", "opacity", "rotation", "scale", "offset", "clip", "visible", "frost", "repeats", "drag"]
+var ANIMATABLE = ["opacity", "rotation", "scale", "offset", "value", "color", "background"]
 var ALIGN = ["start", "center", "end", "top", "bottom", "topStart", "topEnd", "bottomStart", "bottomEnd"]
 var ENUMS = {
   style: ["huge", "title", "body", "small", "muted", "label"],
@@ -2464,10 +2644,10 @@ var ENUMS = {
   font: ["mono", "sans", "serif", "icon"],
   fill: ["width", "height"],
   cap: ["round", "butt", "square"],
-  position: ["above", "below"]
+  position: ["above", "below"],
+  // The one direction onDrag follows (owl 13); without it, any.
+  drag: ["horizontal", "vertical"]
 }
-var ENUM_WORDS = []
-for (var ek in ENUMS) ENUM_WORDS = ENUM_WORDS.concat(ENUMS[ek])
 
 var DRAW = {
   rect: [4, 4, false], circle: [3, 3, false], arc: [5, 5, false], line: [4, 4, false], path: [1, 1, false],
@@ -2521,23 +2701,142 @@ var APP_STATUS_BAR = "an app's statusBar"
 ;[PANEL_FILE, QUERY, "onKey", "android.drawer", "appAction", "workApps", "shortcuts", APP_STATUS_BAR,
   "Column.lazy", "Grid.lazy", "Column.reverse", "Grid.reverse", "Image.label", "Text.minLines", "rank", "strongMatch", "chunk"]
   .forEach(function(k) { SINCE[k] = 11 })
+var KEYBAR_FILE = "keybar \"…\" { }"
+var POST_METHOD = "method:"
+var SECRET = "secret"
+// owl 12: how much of an app's top a camera cutout covers; the extra keys over the soft keyboard as a file, keys
+// for the focused Linux window and touches as they go down; the launcher's gaps and border width; requests other
+// than POST and base64 text; tokens kept encrypted, which only go into requests, and fields that hide what's typed.
+;["screenTop", KEYBAR_FILE, "pressKey", "typeText", "latch", "android.modifiers", "onPress", "onRelease", "repeats",
+  "gapsIn", "gapsOut", "borderWidth", POST_METHOD, "toBase64", "fromBase64", SECRET, "Input.password"]
+  .forEach(function(k) { SINCE[k] = 12 })
+var PANEL_OPACITY = "panel opacity"
+var ANIMATE_OFFSET = "animate offset"
+var VOLUME_STREAM = "volume(…, stream)"
+var TORCH_LEVEL = "torch(level)"
+// owl 13: Android's own panels for what a launcher may show but not switch, the other volume streams, a
+// notification's buttons, replies and snoozing, Do Not Disturb; drags along one direction and their end; how much
+// a panel covers home; the bytes sent and received, the SIM; offsets that ease back; the torch dimmed; the glass
+// home's tiles have.
+;["settings", VOLUME_STREAM, "notification(\"clear\")", "notification(\"action\")", "notification(\"reply\")", "drag", "onDragEnd",
+  PANEL_OPACITY, "android.network", "android.sim", "dnd", "notification(\"snooze\")", "notification(\"snoozeAll\")",
+  "notification(\"unsnooze\")", "notification(\"unsnoozeAll\")", ANIMATE_OFFSET, TORCH_LEVEL, "tileOpacity", "tileFrost"]
+  .forEach(function(k) { SINCE[k] = 13 })
 
 var MANAGERS = { pacman: /^[a-z0-9@_+][a-z0-9@._+-]*$/ }
 // onLongPress only off the home grid: on a tile, long-press belongs to the home screen, which lifts it to move it.
-var HANDLER_PARAMS = { onTap: ["x", "y"], onLongPress: ["x", "y"], onDrag: ["dx", "dy", "x", "y"], onChange: ["value"],
-  onSubmit: ["value"], onDismiss: [],
+var HANDLER_PARAMS = { onTap: ["x", "y"], onLongPress: ["x", "y"],
+  // As the finger goes down, and with `repeats: true` again while it stays: `repeat` counts from 0, the press.
+  onPress: ["x", "y", "repeat"], onRelease: [],
+  onDrag: ["dx", "dy", "x", "y"],
+  // How fast the finger was moving as it let go, in dp a second.
+  onDragEnd: ["vx", "vy"],
+  onChange: ["value"], onSubmit: ["value"], onDismiss: [],
   // A panel's, at its top: a key pressed in the prompt bar while it's open.
   onKey: ["value"] }
 var HANDLER_KINDS = { onChange: ["Slider", "Input"], onSubmit: ["Input"], onDismiss: ["Popup"] }
 var TRIGGER_PARAMS = { on: ["value", "old"] }
-var ANDROID = ["battery", "device", "media", "notifications", "volume", "system", "alarm", "modes", "apps", "agents", "recent", "drawer"]
-var MEDIA = ["toggle", "play", "pause", "next", "previous", "open"]
-var VOLUME = ["up", "down", "mute", "unmute", "toggle"]
-var TORCH = ["on", "off", "toggle"]
-var NOTIFICATION = ["open", "dismiss"]
-var APP_ACTION = ["pin", "info", "uninstall", "remove", "edit", "share"]
-var WORK_APPS = ["pause", "resume", "toggle"]
-var TILE = ["cols", "rows", "tileWidth", "tileHeight", "screenWidth", "screenHeight", "corners"]
+var ANDROID = ["battery", "device", "media", "notifications", "volume", "system", "network", "sim", "alarm", "modes", "apps",
+  "agents", "recent", "drawer", "modifiers"]
+// The words an action's first value may be, when it's written out; `numbers` also allows a number. `forms` are
+// the words that take another number of values than the action's usual: how many, and how they're written.
+function words(list, message, numbers, forms) { return { words: list, message: message, numbers: !!numbers, forms: forms || {} } }
+var SETTINGS_PAGES = ["internet", "wifi", "bluetooth", "airplane", "data", "location", "cast", "nfc", "volume", "output", "sound",
+  "dnd", "display", "dark", "battery", "notifications"]
+var LATCHES = ["ctrl", "alt", "shift"]
+var LATCH_HOWS = ["once", "locked", "off"]
+var ACTION_WORDS = {
+  media: words(["toggle", "play", "pause", "next", "previous", "open"], "media takes toggle, play, pause, next, previous, open"),
+  // A number sets the level in percent.
+  volume: words(["up", "down", "mute", "unmute", "toggle"], "volume takes a level in percent, or up, down, mute, unmute, toggle", true),
+  // true and false also turn it on and off; a number turns it on at that brightness, in percent.
+  torch: words(["on", "off", "toggle"], "torch takes a brightness in percent, true, false, on, off, toggle", true),
+  // Besides on, off and toggle, what android.modes' dndAllows says, so dnd(m.dndAllows) sets back what it read.
+  dnd: words(["on", "off", "toggle", "all", "priority", "alarms", "none"], "dnd takes true, false, on, off, toggle, all, priority, alarms, none"),
+  notification: words(["open", "dismiss", "clear", "action", "reply", "snooze", "snoozeAll", "unsnooze", "unsnoozeAll"],
+    "notification takes open, dismiss, clear, action, reply, snooze, snoozeAll, unsnooze or unsnoozeAll", false, {
+      open: [2, 2, "notification(\"open\", key)"],
+      dismiss: [2, 2, "notification(\"dismiss\", key)"],
+      clear: [1, 1, "notification(\"clear\")"],
+      action: [3, 3, "notification(\"action\", key, i)"],
+      reply: [3, 3, "notification(\"reply\", key, text)"],
+      snooze: [3, 3, "notification(\"snooze\", key, seconds)"],
+      snoozeAll: [2, 2, "notification(\"snoozeAll\", seconds)"],
+      unsnooze: [2, 2, "notification(\"unsnooze\", key)"],
+      unsnoozeAll: [1, 1, "notification(\"unsnoozeAll\")"]
+    }),
+  // Android's panel (a sheet over home) where it has one, else its settings screen.
+  settings: words(SETTINGS_PAGES, "settings takes " + SETTINGS_PAGES.join(", ")),
+  appAction: words(["pin", "info", "uninstall", "remove", "edit", "share"], "appAction takes pin, info, uninstall, remove, edit, share and an app's key"),
+  workApps: words(["pause", "resume", "toggle"], "workApps takes pause, resume, toggle"),
+  latch: words(LATCHES, "latch takes ctrl, alt, shift, and optionally once, locked or off")
+}
+// volume(...)'s second value; media without one.
+var VOLUME_STREAMS = ["media", "ring", "notification", "alarm"]
+var POST_METHODS = ["POST", "PUT", "PATCH", "DELETE"]
+
+// Keys by name, as pressKey("ctrl+c") takes them, and characters on a US keyboard: Linux evdev codes.
+var KEY_MODIFIERS = { ctrl: 29, alt: 56, shift: 42, "super": 125 }
+var KEY_NAMED = { esc: 1, backspace: 14, tab: 15, enter: 28, space: 57, home: 102, up: 103, pgup: 104, left: 105, right: 106,
+  end: 107, down: 108, pgdn: 109, insert: 110, "delete": 111 }
+for (var fk = 1; fk <= 10; fk++) KEY_NAMED["f" + fk] = 58 + fk
+KEY_NAMED.f11 = 87
+KEY_NAMED.f12 = 88
+var KEY_HELP = "pressKey takes a key, " + Object.keys(KEY_NAMED).join(", ") + " or a character, with modifiers in front: \"ctrl+c\", \"shift+insert\", \"ctrl+alt+t\""
+var KEY_UNSHIFTED = "1234567890-=qwertyuiop[]asdfghjkl;'`\\zxcvbnm,./ "
+var KEY_SHIFTED = "!@#$%^&*()_+QWERTYUIOP{}ASDFGHJKL:\"~|ZXCVBNM<>? "
+var KEY_CODES = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
+  30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 57]
+
+// [evdev code, needs shift] for a character on a US keyboard; null for one that isn't.
+function keyForChar(c) {
+  if (c === "\n") return [28, false]
+  if (c === "\t") return [15, false]
+  var i = KEY_UNSHIFTED.indexOf(c)
+  if (i >= 0) return [KEY_CODES[i], false]
+  i = KEY_SHIFTED.indexOf(c)
+  if (i >= 0) return [KEY_CODES[i], true]
+  return null
+}
+
+// esc, ctrl+c, shift+insert, ctrl+alt+t or a character, as {code, held}; null if it names no key. A shifted
+// character holds Shift itself; a letter after a modifier is the key as written on it (ctrl+C is Ctrl+C).
+function keyCombo(t) {
+  if (t === "") return null
+  var parts = t.length === 1 ? [t] : t.slice(-2) === "++" ? t.slice(0, -2).split("+").concat(["+"]) : t.split("+")
+  var key = parts[parts.length - 1]
+  var held = []
+  for (var i = 0; i < parts.length - 1; i++) {
+    var m = parts[i].toLowerCase()
+    if (!KEY_MODIFIERS.hasOwnProperty(m)) return null
+    if (held.indexOf(KEY_MODIFIERS[m]) < 0) held.push(KEY_MODIFIERS[m])
+  }
+  if (KEY_NAMED.hasOwnProperty(key.toLowerCase())) return { code: KEY_NAMED[key.toLowerCase()], held: held }
+  if (key.length !== 1) return null
+  var c = held.length && key >= "A" && key <= "Z" ? key.toLowerCase() : key
+  var k = keyForChar(c)
+  if (k === null) return null
+  if (k[1] && held.indexOf(42) < 0) held.push(42)
+  return { code: k[0], held: held }
+}
+
+// A URL's scheme, host and port, written out so no value can send it elsewhere: what a secret is bound to. No
+// `user@` before the host, and the host ends where the text does or at a /, ? or #.
+var FIXED_HOST = /^https?:\/\/[A-Za-z0-9.-]+(:[0-9]+)?(?=[\/?#]|$)/
+
+// Strings in the order java's HashSet<String> walks them (16 buckets, by String.hashCode), for the one
+// secret a message names when a request sends several.
+function javaSetOrder(names) {
+  function bucket(t) {
+    var h = 0
+    for (var i = 0; i < t.length; i++) h = (31 * h + t.charCodeAt(i)) | 0
+    return ((h ^ (h >>> 16)) & 15)
+  }
+  return names.map(function(n, i) { return [bucket(n), i, n] })
+    .sort(function(a, b) { return a[0] - b[0] || a[1] - b[1] }).map(function(x) { return x[2] })
+}
+var TILE = ["cols", "rows", "tileWidth", "tileHeight", "screenWidth", "screenHeight", "screenInset", "screenTop", "corners", "gapsIn",
+  "gapsOut", "borderWidth", "tileOpacity", "tileFrost"]
 var WIDGET_PROPS = ["size", "minSize", "page", "order", "padding", "background"]
 // A face has no tile's size; it says where it goes and whether the status bar stays over it.
 var FACE_PROPS = ["page", "order", "padding", "background", "statusBar"]
@@ -2632,6 +2931,19 @@ function Compiler(ast) {
   // Compiling a handler or a state's first value, which run once when they run: the only places a
   // value may come out different each time, as random() does.
   this.chance = false
+  // States declared `secret`, read only where secretOk says: a request's headers and body, or a check that it's set.
+  this.secrets = {}
+  this.secretOk = false
+  // While compiling a request's URL, where a secret goes only as enc(token).
+  this.inUrl = false
+  // The secrets a request being compiled sends, in the order they're met.
+  this.sent = null
+  // Each secret's servers, as https://host:port: it's kept only while the file sends it to these.
+  this.secretHosts = {}
+  // Whether text put together now waits for each value in it: a URL, a command or an image's src with a value
+  // still loading is null, and waits, rather than asked for with "…" in it.
+  this.wholeOnly = false
+  this.nodeLetNames = null
 }
 
 function messageOf(e) {
@@ -2651,6 +2963,123 @@ Compiler.prototype = {
     var was = this.chance
     this.chance = true
     try { return f() } finally { this.chance = was }
+  },
+
+  withSecrets: function(f) {
+    var was = this.secretOk
+    this.secretOk = true
+    try { return f() } finally { this.secretOk = was }
+  },
+
+  // Compiles f, part of a request's URL, where a secret may go as enc(token).
+  inRequestUrl: function(f) {
+    var was = this.inUrl
+    this.inUrl = true
+    try { return f() } finally { this.inUrl = was }
+  },
+
+  // Compiles f, what a request asks for, with wholeOnly set.
+  whole: function(f) {
+    var was = this.wholeOnly
+    this.wholeOnly = true
+    try { return f() } finally { this.wholeOnly = was }
+  },
+
+  // Compiles f with secrets readable, but not sent: token == null only says whether it's set.
+  checking: function(f) {
+    var was = this.sent
+    this.sent = null
+    try { return this.withSecrets(f) } finally { this.sent = was }
+  },
+
+  // Compiles a request's URL, headers and body in f, and binds the secrets they send to the servers written out
+  // at the start of its url, so an edit that sends a secret elsewhere loses it.
+  request: function(url, scope, f) {
+    var self = this
+    var was = this.sent
+    var names = []
+    this.sent = names
+    try {
+      var out = f()
+      if (names.length) {
+        var hosts = this.inRequestUrl(function() { return self.servers(url, scope, javaSetOrder(names)[0]) })
+        names.forEach(function(n) {
+          var list = self.secretHosts[n] || (self.secretHosts[n] = [])
+          hosts.forEach(function(h) { if (list.indexOf(h) < 0) list.push(h) })
+        })
+      }
+      return out
+    } finally {
+      this.sent = was
+    }
+  },
+
+  // The servers a request to e goes to, each written out at the start of a way it can turn out, for the secret name.
+  servers: function(e, s, name) {
+    if (e.k === "cond") return this.servers(e.a, s, name).concat(this.servers(e.b, s, name))
+    // A URL that's null pauses its source: it goes nowhere.
+    var ev = this.ex(e, s)
+    if (ev.k && ev.c === null) return []
+    var host = this.server(e, s)
+    if (host === null) this.fail(name + " is a secret, so the server it goes to is written out: \"https://api.example.com/…\", not a value", e.pos)
+    if (host.indexOf("http://") === 0) this.fail(name + " is a secret, so it goes only to an https:// server, where nothing on the way can read it", e.pos)
+    return [host]
+  },
+
+  // The scheme, host and port e starts with as fixed text; null when a value can change them.
+  server: function(e, s) {
+    var whole = this.constText(e, s)
+    var start = whole !== null ? whole : this.constantStart(e, s)
+    var m = FIXED_HOST.exec(start)
+    // Where the text gives way to a value, the host has to have ended first: "https://api.x${v}" could go anywhere.
+    return m && (whole !== null || m[0].length < start.length) ? m[0].toLowerCase() : null
+  },
+
+  // A request's URL, checked. A secret may go into it only as enc(token), for an API that takes its key in the query.
+  requestUrl: function(what, name, e, scope) {
+    var self = this
+    return this.inRequestUrl(function() {
+      var url = self.whole(function() { return self.ex(e, scope) })
+      if (url.k && typeof url.c === "string" && url.c.indexOf("https://") !== 0 && url.c.indexOf("http://") !== 0)
+        self.fail(name + " takes an http:// or https:// URL", e.pos)
+      self.commands.push(what + " " + (url.k && typeof url.c === "string" ? url.c : "(a URL built from widget values)"))
+      return url
+    })
+  },
+
+  isSecret: function(e, s) {
+    if (e.k !== "name" || !this.secrets.hasOwnProperty(e.name)) return false
+    var ref = this.lookup(e.name, s)
+    return ref !== null && !ref.local
+  },
+
+  isUnset: function(e) { return e.k === "lit" && (e.v === null || e.v === "") },
+
+  // Every let written inside a node, anywhere in the file, for letHint.
+  nodeLets: function() {
+    if (this.nodeLetNames) return this.nodeLetNames
+    var names = {}
+    function walk(b) {
+      if (!b) return
+      b.items.forEach(function(i) {
+        if (i.kind === "let") names[i.name] = true
+        else if (i.kind === "node" || i.kind === "for" || i.kind === "call") walk(i.body)
+        else if (i.kind === "if") { walk(i.then); walk(i.orElse) }
+      })
+      b.decls.forEach(function(d) { if (d.kind === "component") walk(d.body) })
+    }
+    walk(this.ast.body)
+    return this.nodeLetNames = names
+  },
+
+  // Why a let by this name can't be read from here, when there is one.
+  letHint: function(name, scope) {
+    var below = "it's declared below; a let reads only the lets above it, so move it up"
+    for (var f = scope; f !== null; f = f.parent) if (f.names.slice(f.visible).indexOf(name) >= 0) return below
+    if (this.ast.body.decls.some(function(d) { return d.kind === "let" && d.name === name })) return below
+    if (this.nodeLets().hasOwnProperty(name))
+      return "it's a let inside a node, which only the nodes inside that one see, not the node's own properties or anything outside it; put the let on the parent"
+    return null
   },
 
   program: function() {
@@ -2676,13 +3105,21 @@ Compiler.prototype = {
       if (d.kind !== "meta" && d.kind !== "trigger" && d.kind !== "requires" && self.slots.hasOwnProperty(d.name))
         self.fail("'" + d.name + "' is already declared", d.pos)
       if (d.kind === "source") { self.reserve(d.name, d.pos); self.sources[d.name] = true }
-      else if (d.kind === "state") { self.reserve(d.name, d.pos); self.states[d.name] = true }
+      else if (d.kind === "state") {
+        self.reserve(d.name, d.pos)
+        self.states[d.name] = true
+        if (d.secret) {
+          self.since(SECRET, d.pos)
+          self.secrets[d.name] = true
+        }
+      }
       else if (d.kind === "asset") self.reserve(d.name, d.pos)
     })
     body.decls.forEach(function(d) {
       if (d.kind === "source") self.globals[self.slots[d.name]] = self.source(d)
       else if (d.kind === "state")
-        self.globals[self.slots[d.name]] = { type: "state", name: d.name, init: self.chancy(function() { return self.ex(d.init, self.root) }), persist: d.persist }
+        self.globals[self.slots[d.name]] = { type: "state", name: d.name, init: self.chancy(function() { return self.ex(d.init, self.root) }),
+          persist: d.persist, secret: !!d.secret }
       else if (d.kind === "asset") self.globals[self.slots[d.name]] = self.asset(d)
       else if (d.kind === "let") {
         var g = self.let(d)
@@ -2758,6 +3195,7 @@ Compiler.prototype = {
       onTap: onTap,
       triggers: triggers,
       commands: this.commands,
+      secretHosts: (function(h) { var o = {}; for (var k in h) o[k] = h[k].slice().sort(); return o })(this.secretHosts),
       requires: requires,
       needsLinux: this.guest || Object.keys(requires).length > 0,
       animated: this.animated,
@@ -2824,6 +3262,8 @@ Compiler.prototype = {
     }
     var listed = d.optional ? "if Linux is installed: " : ""
     var every = d.every ? num(this.constant(d.every, "every")) : null
+    // NaN would poll without pause.
+    if (every !== null && every !== every) every = null
     var timeout = 10
     if (d.timeout) {
       var tv = num(this.constant(d.timeout, "timeout"))
@@ -2834,19 +3274,18 @@ Compiler.prototype = {
     if (isCall && e.name === "http") {
       if (e.args.length < 1 || e.args.length > 2 || e.named.length)
         this.fail("http(\"https://...\") takes a URL and optionally a map of headers", e.pos)
-      var url = this.ex(e.args[0], this.root)
-      if (url.k && typeof url.c === "string" && url.c.indexOf("https://") !== 0 && url.c.indexOf("http://") !== 0)
-        this.fail("http takes an http:// or https:// URL", e.args[0].pos)
-      this.commands.push("http GET " + (url.k && typeof url.c === "string" ? url.c : "(a URL built from widget values)"))
-      src.kind = "http"
-      src.arg = url
-      src.every = Math.max(every === null ? 60 : every, 5)
-      src.headers = e.args.length > 1 ? this.ex(e.args[1], this.root) : null
-      return src
+      var self = this
+      return this.request(e.args[0], this.root, function() {
+        src.kind = "http"
+        src.arg = self.requestUrl("http GET", "http", e.args[0], self.root)
+        src.every = Math.max(every === null ? 60 : every, 5)
+        src.headers = e.args.length > 1 ? self.withSecrets(function() { return self.ex(e.args[1], self.root) }) : null
+        return src
+      })
     }
     if (isCall && (e.name === "cmd" || e.name === "stream")) {
       if (e.args.length !== 1 || e.named.length) this.fail(e.name + "(\"command\") takes one command", e.pos)
-      var arg = this.ex(e.args[0], this.root)
+      var arg = this.whole(function() { return this.ex(e.args[0], this.root) }.bind(this))
       this.commands.push(listed + (arg.k && typeof arg.c === "string" ? arg.c : e.name + "(…) built from widget values"))
       if (!d.optional) this.guest = true
       src.kind = e.name
@@ -2857,7 +3296,7 @@ Compiler.prototype = {
     if (isCall && e.name === "file") {
       if (e.args.length !== 1 || e.named.length) this.fail("file(\"~/path\") takes one path", e.pos)
       if (d.every || d.timeout) this.fail("file(...) updates when the file changes; it takes no every or timeout", d.pos)
-      var path = this.ex(e.args[0], this.root)
+      var path = this.whole(function() { return this.ex(e.args[0], this.root) }.bind(this))
       if (path.k && typeof path.c === "string" && path.c.charAt(0) !== "/" && path.c.indexOf("~/") !== 0)
         this.fail("file takes a path starting with / or ~/", e.args[0].pos)
       this.commands.push(listed + "read file " + (path.k && typeof path.c === "string" ? path.c : "(a path built from widget values)"))
@@ -2911,6 +3350,8 @@ Compiler.prototype = {
       var list = out[f.name] || (out[f.name] = [])
       names.forEach(function(n) { if (list.indexOf(n) < 0) list.push(n) })
     })
+    // pacman: [] asks for nothing, so it mustn't make the widget need Linux.
+    for (var k in out) if (!out[k].length) delete out[k]
     return out
   },
 
@@ -3042,6 +3483,7 @@ Compiler.prototype = {
     if (c.name === "text" && c.named.some(function(n) { return TEXT_STYLE.indexOf(n[0]) >= 0 })) this.since(CANVAS_TEXT_STYLE, c.pos)
     var fontArg = c.named.filter(function(n) { return n[0] === "font" })[0]
     if (fontArg) this.font(fontArg[1], scope)
+    if (c.name === "text" && c.args.length) this.spanFonts(c.args[0], scope)
     this.nodes++
     var args = c.args.map(function(a) { return self.ex(a, scope) })
     var named = {}
@@ -3079,14 +3521,27 @@ Compiler.prototype = {
         self.fail("reverse lists a lazy " + n.type + " from its end: add lazy: true", p.pos)
       if (p.name === "background" && self.gradient(p.value)) self.since(GRADIENT_BACKGROUND, p.pos)
       if (p.name === "frost") self.since("frost", p.pos)
+      if (p.name === "drag") {
+        self.since("drag", p.pos)
+        if (p.value.k !== "name" || ENUMS.drag.indexOf(p.value.name) < 0) self.fail("drag is " + ENUMS.drag.join(" or "), p.pos)
+        if (!body.handlers.some(function(h) { return h.name === "onDrag" })) self.fail("drag picks the direction onDrag follows: add onDrag", p.pos)
+      }
+      if (p.name === "repeats") {
+        self.since("repeats", p.pos)
+        if (!body.handlers.some(function(h) { return h.name === "onPress" }))
+          self.fail("repeats runs onPress again while the finger stays down: add onPress", p.pos)
+      }
       if (p.name === "font") self.font(p.value, scope)
-      props[p.name] = self.prop(p, scope)
+      if (p.name === "spans") self.spanFonts(p.value, scope)
+      props[p.name] = n.type === "Image" && p.name === "src" ? self.whole(function() { return self.prop(p, scope) }) : self.prop(p, scope)
     })
     var handlers = {}
     body.handlers.forEach(function(h) {
       if (!HANDLER_PARAMS.hasOwnProperty(h.name))
         self.fail("unknown handler '" + h.name + "' (" + Object.keys(HANDLER_PARAMS).join(", ") + ")", h.pos)
       if (h.name === "onKey") self.fail("onKey goes at the top of a panel, next to onSubmit", h.pos)
+      if (h.name === "onDragEnd" && !body.handlers.some(function(o) { return o.name === "onDrag" }))
+        self.fail("onDragEnd runs when an onDrag drag ends: add onDrag", h.pos)
       var kinds = HANDLER_KINDS[h.name]
       if (kinds && kinds.indexOf(n.type) < 0) self.fail(h.name + " only works on " + kinds.join(" and "), h.pos)
       if (h.name === "onLongPress" && self.inScreen === false && !self.isFace)
@@ -3097,6 +3552,7 @@ Compiler.prototype = {
     var animations = {}
     body.animations.forEach(function(a) {
       if (ANIMATABLE.indexOf(a.name) < 0) self.fail("'" + a.name + "' can't animate (" + ANIMATABLE.join(", ") + ")", a.pos)
+      if (a.name === "offset") self.since(ANIMATE_OFFSET, a.pos)
       animations[a.name] = self.ex(a.value, scope)
     })
     this.since(n.type, n.pos)
@@ -3130,7 +3586,8 @@ Compiler.prototype = {
     var self = this
     var body = n.body
     if (body.items.length) this.fail(n.type + " takes no child nodes", body.items[0].pos)
-    if (body.handlers.length || body.animations.length) this.fail("put handlers and animate inside the component", n.pos)
+    if (body.handlers.length || body.animations.length)
+      this.fail("put handlers and animate inside the component, or wrap it: Box { onTap: …; " + n.type + " { … } }", n.pos)
     var given = {}
     body.props.forEach(function(p) {
       given[p.name] = p
@@ -3148,6 +3605,8 @@ Compiler.prototype = {
     })
     var frost = body.props.filter(function(p) { return p.name === "frost" && c.params.indexOf(p.name) < 0 })[0]
     if (frost) this.since("frost", frost.pos)
+    var drag = body.props.filter(function(p) { return p.name === "drag" && c.params.indexOf(p.name) < 0 })[0]
+    if (drag) this.fail("drag goes on the node inside " + n.type + " that has onDrag", drag.pos)
     return { t: "use", component: n.type, args: args, wrapper: wrapper, body: c.body, pos: n.pos }
   },
 
@@ -3171,6 +3630,16 @@ Compiler.prototype = {
     var asset = e.k === "name" && this.globals.some(function(g) { return g && g.type === "asset" && g.name === e.name })
     if (t !== null || asset || e.k === "interp") this.since(FONT_FILE, e.pos)
     this.webFile(e, s, "font")
+  },
+
+  // The fonts named in a Text's or a Canvas text's spans, [{text: "a", font: "https://…"}]: level-checked like a font:.
+  spanFonts: function(e, s) {
+    var self = this
+    if (e.k === "list") e.items.forEach(function(it) { self.spanFonts(it, s) })
+    else if (e.k === "map") {
+      var f = e.entries.filter(function(en) { return en[0] === "font" })[0]
+      if (f) this.font(f[1], s)
+    } else if (e.k === "cond") { this.spanFonts(e.a, s); this.spanFonts(e.b, s) }
   },
 
   enumOrNull: function(name, e, scope) {
@@ -3278,19 +3747,29 @@ Compiler.prototype = {
       this.fail(c.name + " takes " + arity[0] + "-" + arity[1] + " values", c.pos)
     var args = c.args.map(function(a) { return self.ex(a, scope) })
     var first = args.length && args[0].k && typeof args[0].c === "string" ? args[0].c : null
-    if (c.name === "media" && first !== null && MEDIA.indexOf(first) < 0) this.fail("media takes " + MEDIA.join(", "), c.pos)
-    if (c.name === "volume" && first !== null && VOLUME.indexOf(first) < 0 && num(first) === null)
-      this.fail("volume takes a level in percent, or " + VOLUME.join(", "), c.pos)
-    if (c.name === "torch" && first !== null && TORCH.indexOf(first) < 0)
-      this.fail("torch takes true, false, " + TORCH.join(", "), c.pos)
-    if (c.name === "notification" && first !== null && NOTIFICATION.indexOf(first) < 0)
-      this.fail("notification takes " + NOTIFICATION.join(", ") + " and a notification's key", c.pos)
-    if (c.name === "appAction" && first !== null && APP_ACTION.indexOf(first) < 0)
-      this.fail("appAction takes " + APP_ACTION.join(", ") + " and an app's key", c.pos)
-    if (c.name === "workApps" && first !== null && WORK_APPS.indexOf(first) < 0)
-      this.fail("workApps takes " + WORK_APPS.join(", "), c.pos)
+    var w = ACTION_WORDS[c.name]
+    if (w) {
+      if (first !== null && w.words.indexOf(first) < 0 && !(w.numbers && javaDouble(first) !== null)) this.fail(w.message, c.pos)
+      var form = first !== null && w.forms.hasOwnProperty(first) ? w.forms[first] : null
+      if (form && (c.args.length < form[0] || c.args.length > form[1])) this.fail("it's " + form[2], c.pos)
+      // A word newer than its action, like notification("reply"), needs the level it came with.
+      this.since(c.name + "(\"" + first + "\")", c.pos)
+    }
     this.since(c.name, c.pos)
+    // notification(...) with one value or three is a word from owl 13, even when the word isn't written out.
+    if (c.name === "notification" && c.args.length !== 2) this.since("notification(\"action\")", c.pos)
+    // A written-out brightness; one from a value, like a Slider's, can't be told from on and off here.
+    if (c.name === "torch" && args[0].k && (typeof args[0].c === "number" || first !== null && javaDouble(first) !== null))
+      this.since(TORCH_LEVEL, c.pos)
+    if (c.name === "volume" && c.args.length === 2) {
+      if (args[1].k && typeof args[1].c === "string" && VOLUME_STREAMS.indexOf(args[1].c) < 0)
+        this.fail("volume's stream is " + VOLUME_STREAMS.join(", "), c.args[1].pos)
+      this.since(VOLUME_STREAM, c.pos)
+    }
     if (c.name === "sound") this.webFile(c.args[0], scope, "sound")
+    if (c.name === "pressKey" && first !== null && keyCombo(first) === null) this.fail(KEY_HELP, c.args[0].pos)
+    if (c.name === "latch" && args.length > 1 && args[1].k && typeof args[1].c === "string" && LATCH_HOWS.indexOf(args[1].c) < 0)
+      this.fail("latch's second value is " + LATCH_HOWS.join(", "), c.args[1].pos)
     if ((c.name === "screen" || c.name === "close") && this.screenAction === null) this.screenAction = c.pos
     // The reviewer sees what a widget would ask, as it sees a command.
     // Uninstalling and removing take apps away: the reviewer sees which entries a widget uses.
@@ -3307,21 +3786,33 @@ Compiler.prototype = {
   // post(url, body, headers), or x = post(...) to get the answer into the state slot: an HTTP POST.
   post: function(call, scope, slot) {
     var self = this
-    if (call.args.length < 1 || call.args.length > 3 || call.named.length)
+    if (call.args.length < 1 || call.args.length > 3)
       this.fail("post(\"https://...\", body, headers) takes a URL, optionally a body and a map of headers", call.pos)
+    call.named.forEach(function(n) { if (n[0] !== "method") self.fail("post takes method: and no other named arguments", n[1].pos) })
     this.since("post", call.pos)
-    var url = this.ex(call.args[0], scope)
-    if (url.k && typeof url.c === "string" && url.c.indexOf("https://") !== 0 && url.c.indexOf("http://") !== 0)
-      this.fail("post takes an http:// or https:// URL", call.args[0].pos)
-    this.commands.push("http POST " + (url.k && typeof url.c === "string" ? url.c : "(a URL built from widget values)"))
-    var body = call.args.length > 1 ? this.ex(call.args[1], scope) : null
-    var headers = call.args.length > 2 ? this.ex(call.args[2], scope) : null
+    // A constant, so the reviewer reads what it does: "http DELETE https://…".
+    var method = "POST"
+    var m = call.named.filter(function(n) { return n[0] === "method" })[0]
+    if (m) {
+      this.since(POST_METHOD, m[1].pos)
+      var mv = this.constant(m[1], "method")
+      method = typeof mv === "string" ? mv.toUpperCase() : null
+      if (POST_METHODS.indexOf(method) < 0) this.fail("method: is one of " + POST_METHODS.map(function(x) { return "\"" + x + "\"" }).join(", "), m[1].pos)
+    }
+    var parts = this.request(call.args[0], scope, function() {
+      return [
+        self.requestUrl("http " + method, "post", call.args[0], scope),
+        call.args.length > 1 ? self.withSecrets(function() { return self.ex(call.args[1], scope) }) : null,
+        call.args.length > 2 ? self.withSecrets(function() { return self.ex(call.args[2], scope) }) : null
+      ]
+    })
+    var url = parts[0], body = parts[1], headers = parts[2]
     return function(env) {
       var target = run(url, env)
       // Like any action whose value hasn't loaded: a null URL sends nothing.
       if (target === null) return
       var h = headers ? run(headers, env) : null
-      env.host.post(show(target), body ? run(body, env) : null, h instanceof Map ? toJson(h) : {}, slot)
+      env.host.post(show(target), body ? run(body, env) : null, h instanceof Map ? toJson(h) : {}, slot, method)
     }
   },
 
@@ -3410,11 +3901,14 @@ Compiler.prototype = {
     case "interp": {
       var parts = e.parts.map(function(p) { return self.ex(p, s) })
       var literal = e.parts.map(function(p) { return p.k === "lit" && typeof p.v === "string" })
+      var wholeOnly = this.wholeOnly
       return this.fold(parts, function(env) {
         var out = ""
         for (var i = 0; i < parts.length; i++) {
           var v = run(parts[i], env)
+          if (wholeOnly && v === null) return null
           out += literal[i] ? show(v) : text(v)
+          checkText(out.length)
         }
         return out
       })
@@ -3441,8 +3935,11 @@ Compiler.prototype = {
       })
     }
     case "bin": {
-      var x = this.ex(e.a, s)
-      var y = this.ex(e.b, s)
+      // token == null says whether it's set, which a widget shows (sign in, or the data).
+      var check = (e.op === "==" || e.op === "!=") && (this.isSecret(e.a, s) && this.isUnset(e.b) || this.isSecret(e.b, s) && this.isUnset(e.a))
+      var x, y
+      if (check) this.checking(function() { x = self.ex(e.a, s); y = self.ex(e.b, s) })
+      else { x = this.ex(e.a, s); y = this.ex(e.b, s) }
       if (e.op === "&&") return this.fold([x, y], function(env) { var v = run(x, env); return !truthy(v) ? v : run(y, env) })
       if (e.op === "||") return this.fold([x, y], function(env) { var v = run(x, env); return truthy(v) ? v : run(y, env) })
       if (e.op === "??") return this.fold([x, y], function(env) { var v = run(x, env); return v !== null ? v : run(y, env) })
@@ -3492,6 +3989,13 @@ Compiler.prototype = {
     }
     if (ref !== null) {
       var slot = ref.slot
+      // Never shown, run or copied: on screen or in Linux, it would be out.
+      if (this.secrets.hasOwnProperty(e.name)) {
+        if (this.sent && this.sent.indexOf(e.name) < 0) this.sent.push(e.name)
+        if (!this.secretOk)
+          this.fail(e.name + " is a secret: it goes only into http(...)'s and post(...)'s headers and body, written out in them, not through a let "
+            + "({Authorization: \"Bearer ${" + e.name + "}\"}), into their URL as enc(" + e.name + "), or into " + e.name + " == null, != null or != \"\"", e.pos)
+      }
       return new Ev(function(env) { return env.host.read(slot) })
     }
     if (CONSTANTS.hasOwnProperty(e.name)) return evOf(CONSTANTS[e.name])
@@ -3502,12 +4006,11 @@ Compiler.prototype = {
     }
     // Apps and faces only: a widget's screen ends above the navigation bar. This runtime has no apps, and
     // no navigation bar under a face, so it's 0 here.
-    if (e.name === "screenInset") {
-      if (!(this.isFace && this.inScreen !== true))
-        this.fail("screenInset is for apps with edge: true and faces; a widget's screen ends above the navigation bar", e.pos)
-      this.since("screenInset", e.pos)
-      return new Ev(function(env) { return env.host.tile("screenInset") })
-    }
+    if (e.name === "screenInset" && !(this.isFace && this.inScreen !== true))
+      this.fail("screenInset is for apps with edge: true and faces; a widget's screen ends above the navigation bar", e.pos)
+    // Only an app runs up to the top edge, with statusBar: false; a face and a widget's screen stay clear of the cutout.
+    if (e.name === "screenTop")
+      this.fail("screenTop is for apps with statusBar: false; a face and a widget's screen start below the camera", e.pos)
     if (TILE.indexOf(e.name) >= 0 || e.name === "linux") {
       this.since(e.name, e.pos)
       var tn = e.name
@@ -3515,8 +4018,13 @@ Compiler.prototype = {
     }
     // The prompt bar's text, which only a panel has; this runtime has none.
     if (e.name === QUERY) this.fail("query is the prompt bar's text, which only a panel has", e.pos)
-    if (ENUM_WORDS.indexOf(e.name) >= 0) this.fail("'" + e.name + "' isn't a value here", e.pos)
-    this.fail("unknown name '" + e.name + "'", e.pos)
+    for (var prop in ENUMS) {
+      if (ENUMS[prop].indexOf(e.name) >= 0)
+        this.fail("'" + e.name + "' isn't a value here: a word like it stands alone, as in " + prop + ": " + e.name
+          + "; in an expression, quote it: x ? \"" + e.name + "\" : …", e.pos)
+    }
+    var hint = this.letHint(e.name, s)
+    this.fail("unknown name '" + e.name + "'" + (hint !== null ? ": " + hint : ""), e.pos)
   },
 
   call: function(e, s) {
@@ -3527,7 +4035,13 @@ Compiler.prototype = {
     if (["cmd", "stream", "http", "file"].indexOf(e.name) >= 0)
       this.fail(e.name + "(...) is a source: source x = " + e.name + "(\"...\")", e.pos)
     var b = BUILTINS.hasOwnProperty(e.name) ? BUILTINS[e.name] : null
-    if (!b) this.fail("unknown function '" + e.name + "'", e.pos)
+    if (!b) {
+      var ref = this.lookup(e.name, s)
+      var isLet = this.ast.body.decls.some(function(d) { return d.kind === "let" && d.name === e.name })
+        || this.nodeLets().hasOwnProperty(e.name) || ref !== null && ref.local
+      this.fail("unknown function '" + e.name + "'" + (isLet
+        ? ": '" + e.name + "' is a let, and a let can't be called; write the expression out where it's used, or make a component for nodes you repeat" : ""), e.pos)
+    }
     this.since(e.name, e.pos)
     if (e.name === "fmtTime" && e.args.length > 2) this.since(FMT_TIME_ZONE, e.pos)
     if (e.name === "flatten" && e.args.length > 1) this.since(FLATTEN_DEPTH, e.pos)
@@ -3538,7 +4052,9 @@ Compiler.prototype = {
     if (e.named.length) this.fail(e.name + " takes no named arguments", e.named[0][1].pos)
     if (e.args.length < b.min || e.args.length > b.max)
       this.fail(e.name + " takes " + (b.min === b.max ? String(b.min) : b.min + "-" + b.max) + " arguments, not " + e.args.length, e.pos)
-    var args = e.args.map(function(a) { return self.ex(a, s) })
+    // A secret in a request's URL, as enc(token).
+    var urlSecret = e.name === "enc" && this.inUrl && e.args.length === 1 && this.isSecret(e.args[0], s) ? e.args[0] : null
+    var args = urlSecret !== null ? [this.withSecrets(function() { return self.ex(urlSecret, s) })] : e.args.map(function(a) { return self.ex(a, s) })
     var impl = b.impl
     var name = e.name
     var f = function(env) {
@@ -3595,8 +4111,8 @@ function formatError(src, e) {
 //                     screenHeight and linux
 //   act(name, args)   terminal(), url(), run() and the rest
 //   runInto(cmd, slot) runs a command and later calls setState(slot, output)
-//   post(url, body, headers, slot) sends an HTTP POST; with a slot, it later
-//                     calls setState(slot, {code, ok, out})
+//   post(url, body, headers, slot, method) sends an HTTP POST, or method's PUT,
+//                     PATCH or DELETE; with a slot, it later calls setState(slot, {code, ok, out})
 //   shortcutsInto(key, slot) an app's shortcuts, later through setState(slot, list);
 //                     without it, the slot gets an empty list
 //   report(message)   a runtime error, for the widget's error log
@@ -3605,7 +4121,9 @@ function formatError(src, e) {
 // and drives the instance with setSource(), frame() and the handlers that
 // render() hands out.
 
-function Instance(program, host, persisted) {
+// `secrets` are the secret states kept from before, {name: {hosts, value}}: each comes back only while the
+// file still sends it to the same servers (program.secretHosts).
+function Instance(program, host, persisted, secrets) {
   var self = this
   this.program = program
   this.host = host
@@ -3624,11 +4142,15 @@ function Instance(program, host, persisted) {
   this.drawBridge = this.bridge(this.drawBudget)
   this.env = new Env(this.hostBridge, null, [])
   var saved = persisted || {}
+  var kept = secrets || {}
   program.globals.forEach(function(g, slot) {
     self.values[slot] = null
     self.letCache[slot] = undefined
     if (g.type === "state") {
       if (g.persist && saved.hasOwnProperty(g.name)) self.values[slot] = fromJson(saved[g.name])
+      else if (g.secret && kept.hasOwnProperty(g.name) && kept[g.name]
+          && JSON.stringify(kept[g.name].hosts) === JSON.stringify(program.secretHosts[g.name] || []))
+        self.values[slot] = fromJson(kept[g.name].value)
       else self.values[slot] = self.guard("state " + g.name, function() { return run(g.init, self.env) }, null)
     } else if (g.type === "sampled") {
       self.sampled[slot] = g.persist && Array.isArray(saved[g.name]) ? saved[g.name].map(fromJson) : []
@@ -3672,7 +4194,7 @@ Instance.prototype = {
       },
       act: function(name, args) { self.host.act(name, args) },
       runInto: function(cmd, slot) { self.host.runInto(cmd, slot) },
-      post: function(url, body, headers, slot) { self.host.post(url, body, headers, slot) },
+      post: function(url, body, headers, slot, method) { self.host.post(url, body, headers, slot, method || "POST") },
       shortcutsInto: function(key, slot) {
         if (self.host.shortcutsInto) self.host.shortcutsInto(key, slot)
         else self.setState(slot, [])
@@ -3830,6 +4352,17 @@ Instance.prototype = {
       self.triggerLast[i] = nowSeconds
       if (due !== null && last !== null && last < due && nowSeconds >= due) t.action.run(self.env, [])
     })
+  },
+
+  // The secret states that are set, with the servers each is bound to, for a file of their own.
+  secrets: function() {
+    var self = this
+    var out = {}
+    this.program.globals.forEach(function(g, slot) {
+      if (g.type === "state" && g.secret && self.values[slot] !== null)
+        out[g.name] = { hosts: self.program.secretHosts[g.name] || [], value: toJson(self.values[slot]) }
+    })
+    return out
   },
 
   persisted: function() {
