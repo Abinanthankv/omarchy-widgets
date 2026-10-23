@@ -3,7 +3,7 @@ widget "duolingo" {
   minSize: 3x2
   meta {
     description: "La llama de Duolingo se enciende cuando cumples la tarea del día, con la semana marcada: días hechos, congelados y perdidos. Toca para configurar tu usuario y ver el detalle; «abrir duo» abre la app."
-    version: "1.3.1"
+    version: "1.3.2"
     author: "Madmasx"
     license: "MIT"
     category: "fun"
@@ -29,7 +29,7 @@ widget "duolingo" {
   // La API pública del perfil: los mismos datos que ve la app. Sin usuario aún,
   // se consulta un nombre que no existe (la API rechaza un username vacío).
   let query = username == "" ? "owl-unset" : username
-  source duo = http("https://www.duolingo.com/2017-06-30/users?username=${enc(query)}") every 2m timeout 15s json
+  source duo = http("https://www.duolingo.com/2017-06-30/users?username=${enc(query)}") every 10m timeout 15s json
   let u = duo.users[0]
   let cs = u.streakData.currentStreak
   let streak = cs == null ? num(u.streak) : num(cs.length)
