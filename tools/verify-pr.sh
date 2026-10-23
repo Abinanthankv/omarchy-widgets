@@ -121,7 +121,7 @@ done
 grid='(^|[^A-Za-z0-9_.])(rows|cols)([ \t]*\?\?[ \t]*[0-9]+\))?[ \t]*([<>]=?|[=!]=)[ \t]*[0-9]|[0-9][ \t]*([<>]=?|[=!]=)[ \t]*\(?(rows|cols)([^A-Za-z0-9_]|$)'
 for owl in $owls $apps; do
   cmp -s "$out/$owl" "$out/base/$owl" && continue
-  n=$(grep -nE "$grid" "$out/$owl" | head -1 | cut -d: -f1)
+  n=$(grep -nE "$grid" "$out/$owl" | head -1 | cut -d: -f1 || true)
   if [ -n "$n" ]; then
     echo "::warning file=$owl,line=$n::picks its layout by rows or cols; compare tileHeight or tileWidth (dp) instead, since a row's height differs by phone"
   fi
