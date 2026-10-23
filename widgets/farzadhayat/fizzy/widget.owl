@@ -2,8 +2,7 @@ widget "fizzy" {
   // Your open Fizzy cards (fizzy.do, by 37signals), newest activity first; tap one to open it.
   // Token: Fizzy > your profile > API > Personal access tokens (read + write, to close and add cards).
   // It's typed in on the phone and kept encrypted, never in this file.
-  meta { description: "Open cards from your Fizzy boards, with a personal access token kept encrypted on the phone"; version: "1.0"; license: "MIT"; category: "dev"; owl: 12 }
-  page: 1
+  meta { description: "Open cards from your Fizzy boards, with a personal access token kept encrypted on the phone"; version: "1.0.1"; license: "MIT"; category: "dev"; owl: 12 }
   size: 6x5
   minSize: 3x3
 
