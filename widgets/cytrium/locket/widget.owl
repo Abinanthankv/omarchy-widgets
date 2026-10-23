@@ -6,12 +6,12 @@ widget "locket" {
   meta {
     owl: 11
     description: "Unofficial Locket widget: live photo moments from friends, emoji reactions, chat replies, and account sign-in"
-    version: "1.6"
+    version: "1.6.1"
     license: "MIT"
     category: "media"
   }
 
-  source now = clock every 20m
+  source now = clock every 1m
   source notifs = android.notifications
 
   // Persistent Locket session, per-install device ID & cached feed (capped to 12 slim items)
@@ -161,7 +161,7 @@ widget "locket" {
       statusMsg = ""
     }
     if refreshToken != "" && value >= busyUntil {
-      if value >= tokenExp - 300 || idToken == "" {
+      if (value >= tokenExp - 300 || idToken == "") && (value - lastSyncAt >= 300 || lastSyncAt > value) {
         busyUntil = value + 20
         lastSyncAt = value
         refreshRes = null
