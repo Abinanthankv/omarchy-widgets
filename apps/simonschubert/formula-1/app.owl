@@ -2,7 +2,7 @@ app "formula 1" {
   meta {
     owl: 11
     description: "Formula 1 on one screen: the race weekend and its sessions, the calendar, every result, the driver and team standings, and OpenF1 timing."
-    version: "1.0"
+    version: "1.1"
     license: "MIT"
     category: "sport"
   }
@@ -311,8 +311,6 @@ app "formula 1" {
         align: center
         width: 64
         height: 32
-        radius: 16 * corners
-        background: on ? alpha(foreground, 0.14) : null
         Image { src: icon; size: 24; tint: on ? foreground : muted }
       }
       Text { text: name; style: small; align: center; maxLines: 1; bold: on; color: on ? foreground : muted }

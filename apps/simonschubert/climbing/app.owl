@@ -2,7 +2,7 @@ app "ifsc" {
   meta {
     owl: 8
     description: "The World Climbing Series on one screen: the next event, results from every stop, and the boulder, lead and speed cup."
-    version: "2.0"
+    version: "2.1"
     license: "MIT"
     category: "sport"
   }
@@ -250,8 +250,6 @@ app "ifsc" {
         align: center
         width: 64
         height: 32
-        radius: 16 * corners
-        background: view == name || (name == "events" && view == "event" && from == "events") ? alpha(foreground, 0.14) : null
         Image { src: icon; size: 24; tint: view == name || (name == "events" && view == "event" && from == "events") ? foreground : muted }
       }
       Text { text: name; style: small; align: center; maxLines: 1; bold: view == name; color: view == name || (name == "events" && view == "event" && from == "events") ? foreground : muted }

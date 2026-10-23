@@ -1,5 +1,5 @@
 app "power atlas" {
-  meta { owl: 11; description: "How much electricity each country generates and uses, from coal to solar, how clean it is, what it imports and exports, and how that compares to its size and population"; version: "1.0"; license: "MIT"; category: "world" }
+  meta { owl: 11; description: "How much electricity each country generates and uses, from coal to solar, how clean it is, what it imports and exports, and how that compares to its size and population"; version: "1.1"; license: "MIT"; category: "world" }
   // A country's page and the country picker are a level of their own; Back returns to the tab.
   title: openId != "" ? cn.n : picking != "" ? "pick a country" : view == "world" ? "world electricity" : view
   back: openId != "" || picking != ""
@@ -416,8 +416,6 @@ app "power atlas" {
         align: center
         width: 56
         height: 32
-        radius: 16 * corners
-        background: view == name ? alpha(foreground, 0.14) : null
         Image { src: img; size: 24; tint: view == name ? foreground : muted }
       }
       Text { text: label; style: small; align: center; maxLines: 1; bold: view == name; color: view == name ? foreground : muted }

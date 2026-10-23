@@ -1,5 +1,5 @@
 app "hacker news" {
-  meta { owl: 8; description: "A Hacker News reader: the front page, newest, Ask and Show HN, and every story's comments, threaded and in HN's order"; version: "2.0"; license: "MIT"; category: "news" }
+  meta { owl: 8; description: "A Hacker News reader: the front page, newest, Ask and Show HN, and every story's comments, threaded and in HN's order"; version: "2.1"; license: "MIT"; category: "news" }
   // A story's comments are a view of their own; Back returns to the list.
   title: open == 0 ? "hacker news" : story.comments == 1 ? "1 comment" : "${story.comments ?? 0} comments"
   back: open != 0
@@ -120,8 +120,6 @@ app "hacker news" {
         align: center
         width: 56
         height: 32
-        radius: 16 * corners
-        background: feed == name && open == 0 ? alpha(foreground, 0.14) : null
         Image { src: icon; size: 24; tint: feed == name ? foreground : muted }
       }
       Text { text: name; style: small; align: center; maxLines: 1; bold: feed == name; color: feed == name ? foreground : muted }

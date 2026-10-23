@@ -1,5 +1,5 @@
 app "couch" {
-  meta { owl: 8; description: "A movie and TV tracker for Trakt: trending, popular and anticipated titles, cast, seasons and episodes, search; sign in for up next, a calendar, your watchlist, history and ratings"; version: "1.0"; license: "MIT"; category: "media" }
+  meta { owl: 8; description: "A movie and TV tracker for Trakt: trending, popular and anticipated titles, cast, seasons and episodes, search; sign in for up next, a calendar, your watchlist, history and ratings"; version: "1.1"; license: "MIT"; category: "media" }
   // A port of Couch for Trakt (github.com/SimonSchubert/omarchy-couch). Not affiliated with Trakt.
   // A title's page, search, history and settings are a level of their own; Back returns to the tab.
   title: open != null ? (open.m.title ?? "") : view == "search" ? "search" : view == "history" ? "history" : view == "settings" ? "settings" : tab == "upnext" ? "up next" : tab
@@ -500,8 +500,6 @@ app "couch" {
         align: center
         width: 56
         height: 30
-        radius: 15 * corners
-        background: sel ? alpha(accent, 0.18) : null
         Image { src: pic; size: 22; tint: sel ? accent : muted }
       }
       Text { text: text; fontSize: 11; align: center; maxLines: 1; bold: sel; color: sel ? foreground : muted }

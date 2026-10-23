@@ -1,5 +1,5 @@
 app "linux commands" {
-  meta { owl: 8; description: "The Linux Command Library: 9,000+ commands with examples and options, cheat sheets and terminal tips"; version: "1.4"; license: "MIT"; category: "dev" }
+  meta { owl: 8; description: "The Linux Command Library: 9,000+ commands with examples and options, cheat sheets and terminal tips"; version: "1.5"; license: "MIT"; category: "dev" }
   title: sel != "" ? sel : basic != "" ? get(titles, basic, basic) : "linux commands"
   // Back goes from a page to the one before it (a command's "see also" chain), then to the list.
   back: sel != "" || basic != ""
@@ -78,8 +78,6 @@ app "linux commands" {
         align: center
         width: 64
         height: 32
-        radius: 16 * corners
-        background: tab == name ? alpha(foreground, 0.14) : null
         Image { src: icon; size: 24; tint: tab == name ? foreground : muted }
       }
       Text { text: name; style: small; align: center; maxLines: 1; bold: tab == name; color: tab == name ? foreground : muted }
