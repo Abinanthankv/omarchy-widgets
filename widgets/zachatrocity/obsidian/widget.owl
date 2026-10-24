@@ -7,7 +7,7 @@ widget "obsidian" {
   meta {
     owl: 11
     description: "A quiet Obsidian companion: browse Markdown notes, preview one, and append a quick thought."
-    version: "1.0"
+    version: "1.0.1"
     license: "MIT"
     category: "productivity"
   }
@@ -24,7 +24,7 @@ widget "obsidian" {
 
   source notes = cmd("root=${sh(vaultDir)}\nif [ -z \"$root\" ]; then\n  for candidate in \"$HOME/Documents\" \"$HOME/Obsidian\" \"$HOME/notes\" \"/sdcard/Documents\" \"/storage/emulated/0/Documents\"; do\n    if [ -d \"$candidate/.obsidian\" ]; then root=\"$candidate\"; break; fi\n  done\nfi\nroot=$(printf '%s' \"$root\" | sed \"s#^~#$HOME#\")\nif [ ! -d \"$root\" ]; then printf '[]'; exit; fi\nfind \"$root\" -type f -name '*.md' -not -path '*/.obsidian/*' -printf '%p\\t%f\\t%TY-%Tm-%Td %TH:%TM\\n' | jq -Rsc 'split(\"\\n\") | map(select(length > 0) | split(\"\\t\") | {path: .[0], name: (.[1] | sub(\"\\\\.md$\"; \"\")), changed: .[2]}) | sort_by(.changed) | reverse'") every 30s json timeout 20s
 
-  source body = cmd(selected == null ? "printf ''" : "sed -n '1,220p' -- ${sh(selected)}") every 1s
+  source body = cmd(selected == null ? "printf ''" : "sed -n '1,220p' -- ${sh(selected)}") every 30s
 
   let entries = notes ?? []
   let shown = query == "" ? entries : rank(entries, query)
