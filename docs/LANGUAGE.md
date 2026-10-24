@@ -276,8 +276,11 @@ and the message goes to `.errors/`.
 - The phone is portrait: 6 columns, ~12 rows. A full-width widget is `6xN`,
   half-width `3xN`. Set `minSize` to what the layout still fits in.
 - Use `weight: 1` to fill leftover space and `fill: width` to stretch across.
-- A `Text` without `width`, `weight` or `fill` takes the full width. In a `Row`, give the Texts
-  next to a `weight: 1` one a `width`, or the weighted one is squeezed to nothing.
+- A `Text` in a `Row` or `Flow` is as wide as its text, and so is a `Column` without a size in a
+  `Row`. Give a long one `weight: 1` and `maxLines: 1` so it takes what's left and doesn't push
+  the rest out. With `meta { owl: 9 }` or lower, a `Text` without `width`, `weight` or `fill` takes
+  the full width, so there give the Texts next to a `weight: 1` one a `width`, or the weighted one
+  is squeezed to nothing.
 - `tileWidth`, `tileHeight` (dp) are the tile's size, to pick a layout that fits:
   `let short = (tileHeight ?? 999) < 185`. Don't decide by `cols`, `rows` (grid cells): a row is
   a different number of dp on every phone, so a 3-row tile on a tall phone has room a check like
