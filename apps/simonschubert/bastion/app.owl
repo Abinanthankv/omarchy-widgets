@@ -1,0 +1,672 @@
+app "bastion" {
+  // An endless tower defense in pixel art. Monsters pour out of a rift and wind down the road to
+  // the keep; archers, cannons, frost spires and tesla coils on the grass stop them. Every tower
+  // can be upgraded without end, and every wave is a little stronger than the last.
+  //
+  // There's no game loop. `film` plays the battle forward from `base`, the state at `ev`, in
+  // steps of DT game seconds, a little over a second ahead; the canvas draws the step the clock
+  // is in, sliding the monsters between steps. Once a second, and whenever a tower is built,
+  // upgraded or sold, the step that has been reached becomes the new `base`.
+
+  meta { owl: 12; description: "An endless pixel-art tower defense: build archers, cannons, frost spires and tesla coils along a winding road and upgrade them without end"; version: "1.0"; license: "MIT"; category: "games" }
+
+  title: ""
+  statusBar: false
+  edge: true
+  icon: """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+    <clipPath id="t"><rect width="256" height="256" rx="56"/></clipPath>
+    <g clip-path="url(#t)">
+    <rect width="256" height="256" fill="#2b2140"/>
+    <rect y="64" width="256" height="64" fill="#4a2f5e"/>
+    <rect y="128" width="256" height="48" fill="#7a3f68"/>
+    <rect y="176" width="256" height="80" fill="#5a9e45"/>
+    <rect y="188" width="256" height="68" fill="#4e9140"/>
+    <rect x="0" y="212" width="256" height="20" fill="#c9a46c"/>
+    </g>
+    <rect x="68" y="118" width="120" height="108" fill="#1e1726"/>
+    <rect x="116" y="34" width="12" height="60" fill="#1e1726"/>
+    <rect x="104" y="82" width="48" height="12" fill="#1e1726"/>
+    <rect x="92" y="94" width="72" height="12" fill="#1e1726"/>
+    <rect x="80" y="106" width="96" height="12" fill="#1e1726"/>
+    <rect x="56" y="130" width="144" height="12" fill="#1e1726"/>
+    <rect x="128" y="34" width="12" height="12" fill="#1e1726"/>
+    <rect x="152" y="46" width="12" height="12" fill="#1e1726"/>
+    <rect x="164" y="58" width="12" height="12" fill="#1e1726"/>
+    <rect x="80" y="142" width="96" height="36" fill="#b07a45"/>
+    <rect x="104" y="94" width="48" height="36" fill="#d24a3c"/>
+    <rect x="80" y="118" width="96" height="12" fill="#d24a3c"/>
+    <rect x="92" y="106" width="72" height="12" fill="#d24a3c"/>
+    <rect x="80" y="190" width="96" height="24" fill="#b7b3c4"/>
+    <rect x="80" y="178" width="96" height="12" fill="#a8803a"/>
+    <rect x="140" y="106" width="24" height="24" fill="#962f2f"/>
+    <rect x="140" y="94" width="12" height="12" fill="#962f2f"/>
+    <rect x="164" y="118" width="12" height="12" fill="#962f2f"/>
+    <rect x="128" y="46" width="24" height="24" fill="#e8c06a"/>
+    <rect x="152" y="58" width="12" height="12" fill="#e8c06a"/>
+    <rect x="104" y="190" width="12" height="12" fill="#7d7891"/>
+    <rect x="152" y="190" width="12" height="12" fill="#7d7891"/>
+    <rect x="128" y="202" width="12" height="12" fill="#7d7891"/>
+    <rect x="164" y="202" width="12" height="12" fill="#7d7891"/>
+    <rect x="164" y="142" width="12" height="36" fill="#7d5232"/>
+    <rect x="92" y="154" width="12" height="12" fill="#2a2238"/>
+    <rect x="152" y="154" width="12" height="12" fill="#2a2238"/>
+  </svg>"""
+
+  source now = clock every 1s
+
+  // "title", "play" or "over"
+  state mode = "title" persist
+  state best = 0 persist
+  // each tower: its cell, kind, level and the gold spent on it (for selling)
+  state towers = [] persist
+  // the battle at ev: game time, monsters, tower cooldowns, the shots and deaths of its last
+  // step, gold, lives and the next monster's id
+  state base = {t: 0, es: [], cd: [], sh: [], dd: [], lk: [], gold: 200, lives: 20, nid: 0} persist
+  state ev = 0
+  state wave = 0 persist
+  // the game time the next wave comes at; 0 while one is on
+  state nextAt = 0 persist
+  state speed = 1 persist
+  // the selected cell, or -1
+  state sel = -1
+  state overT = 0
+  // a banner across the field, and when it went up
+  state msg = ""
+  state msgT = -99
+  // the field's rows, fixed when a game starts so that turning the phone keeps every tower in place
+  state grows = 0 persist
+
+  // ---- the screen, in dp ------------------------------------------------------------------------
+  let SW = screenWidth ?? 400
+  let SH = screenHeight ?? 800
+  // Clear of a camera cutout and the navigation bar, and of the screen's rounded corners, which
+  // Android doesn't tell an app about: the top bar keeps 12 dp from the edge and 14 dp from the
+  // sides, the panel at least 16 dp from the bottom.
+  let TOP = max(screenTop ?? 0, 12)
+  let INS = max(screenInset ?? 0, 16)
+  let HUD = 40
+  let FY = TOP + HUD + 4
+
+  // ---- the field --------------------------------------------------------------------------------
+  // 9 cells across, and as many rows (13 to 18) as the screen has room for beside the panel: below
+  // the field and 150 dp high, or in landscape (LS) right of it and 220 dp wide, where the field
+  // lies on its side. The road runs between these cell centres, in from the rift above the top row
+  // to the keep's gate; it's laid out for 13 rows, and on a longer field its rows spread out.
+  let LS = SW > SH
+  let COLS = 9
+  let FIT = LS ? clamp(floor((SW - 244) / floor((SH - FY - INS - 4) / COLS)), 13, 18) : clamp(floor((SH - FY - INS - 158) / floor((SW - 8) / COLS)), 13, 18)
+  let ROWS = mode == "title" || grows < 13 ? FIT : grows
+  let C = floor(LS ? min((SH - FY - INS - 4) / COLS, (SW - 244) / ROWS) : min((SW - 8) / COLS, (SH - FY - INS - 158) / ROWS))
+  let WP = [[1, -1], [1, 2], [7, 2], [7, 5], [4, 5], [4, 8], [1, 8], [1, 11], [8, 11]].map(p => [p[0], p[1] <= 0 ? p[1] : round(p[1] * (ROWS - 1) / 12)])
+  let segs = scan(range(len(WP) - 1), (a, i) => {
+    ax: WP[i][0], ay: WP[i][1], bx: WP[i + 1][0], by: WP[i + 1][1],
+    ux: sign(WP[i + 1][0] - WP[i][0]), uy: sign(WP[i + 1][1] - WP[i][1]),
+    s: a.e, e: a.e + abs(WP[i + 1][0] - WP[i][0]) + abs(WP[i + 1][1] - WP[i][1])
+  }, {e: 0})
+  let PL = last(segs).e
+  let pathCells = unique(flatten(segs.map(g => range(g.e - g.s + 1).map(k => (g.ay + g.uy * k) * COLS + g.ax + g.ux * k)))).filter(c => c >= 0)
+  let trees = [[3, 0], [8, 0], [0, 6], [8, 8], [5, 12], [0, 12]].map(p => [p[0], round(p[1] * (ROWS - 1) / 12)])
+  let rocks = [[0, 3], [6, 12]].map(p => [p[0], round(p[1] * (ROWS - 1) / 12)])
+  // the pond's top row, and the keep's
+  let PR = round(7 * (ROWS - 1) / 12)
+  let KY = last(WP)[1]
+  let pond = [[6, PR], [7, PR], [6, PR + 1], [7, PR + 1]]
+  let blocked = pathCells + (trees + rocks + pond + [[8, KY - 1]]).map(p => p[1] * COLS + p[0])
+  // grass tufts and flowers, in art pixels: [x, y, kind]
+  let tufts = range(COLS * ROWS).filter(c => indexOf(blocked, c) < 0 && hash(c, 7) < 0.75).map(c => [c % COLS * 12 + 1 + floor(hash(c, 8) * 8), floor(c / COLS) * 12 + 2 + floor(hash(c, 9) * 7), hash(c, 10) < 0.3 ? 1 + floor(hash(c, 11) * 3) : 0])
+  let pebbles = range(30).map(i => [hash(i, 21) * PL, floor(hash(i, 22) * 7) - 3]).map(z => [segs.find(g => z[0] <= g.e)].map(g => [floor((g.ax + g.ux * (z[0] - g.s)) * 12 + 5 + abs(g.uy) * z[1]), floor((g.ay + g.uy * (z[0] - g.s)) * 12 + 5 + abs(g.ux) * z[1])])[0])
+
+  // ---- towers and monsters ----------------------------------------------------------------------
+  // range and splash in cells, rate in shots a second
+  let KD = [
+    {n: "ARCHER", cost: 50, dmg: 7, rate: 1.5, rng: 2.4, sp: 0},
+    {n: "CANNON", cost: 100, dmg: 18, rate: 0.5, rng: 2.1, sp: 0.9},
+    {n: "FROST", cost: 80, dmg: 3, rate: 1, rng: 1.8, sp: 0},
+    {n: "TESLA", cost: 150, dmg: 12, rate: 0.8, rng: 2.2, sp: 0}
+  ]
+  // slime, bat, knight, ogre; speed in cells a second
+  let ED = [
+    {hp: 18, v: 0.95, g: 4},
+    {hp: 11, v: 1.6, g: 3},
+    {hp: 55, v: 0.6, g: 9},
+    {hp: 420, v: 0.42, g: 70}
+  ]
+  // a tower's stats at level l, and what the next level costs
+  let tw0 = towers.map(t => {
+    c: t.c, k: t.k, l: t.l, x: t.c % COLS, y: floor(t.c / COLS),
+    dmg: KD[t.k].dmg * pow(1.45, t.l - 1),
+    per: 1 / min(4, KD[t.k].rate * (1 + 0.06 * (t.l - 1))),
+    r: KD[t.k].rng + min(1.5, 0.1 * (t.l - 1)),
+    sp: KD[t.k].sp + min(0.6, 0.04 * (t.l - 1)),
+    slow: min(0.7, 0.35 + 0.025 * (t.l - 1)),
+    ch: t.k == 3 ? min(7, 3 + floor((t.l - 1) / 3)) : 99,
+    up: round(KD[t.k].cost * 0.8 * pow(1.45, t.l - 1)),
+    sell: floor(t.sp * 0.7)
+  })
+  // The stretches of road in a tower's range, as distances along it: where a straight piece of
+  // road crosses the circle.
+  let tw1 = tw0.map(t => merge(t, {cov: segs.map(g => [(t.x - g.ax) * g.ux + (t.y - g.ay) * g.uy, abs((t.x - g.ax) * g.uy - (t.y - g.ay) * g.ux), g.s, g.e - g.s]).map(o => [o[2] + max(0, o[0] - sqrt(max(0, t.r * t.r - o[1] * o[1]))), o[2] + min(o[3], o[0] + sqrt(max(0, t.r * t.r - o[1] * o[1])))]).filter(iv => iv[1] - iv[0] > 0.01)}))
+  let tw = tw1.map(t => merge(t, {lo: min(t.cov.map(iv => iv[0])) ?? 999, hi: max(t.cov.map(iv => iv[1])) ?? -999}))
+  let frz = tw.filter(t => t.k == 2)
+
+  // ---- the battle, played forward -----------------------------------------------------------------
+  // Each step: monsters walk (slowed by frost in range), then each tower whose cooldown is up
+  // shoots the monster furthest along the road in its range: an archer that one, a cannon all
+  // around it, frost all in range, tesla a chain of them. The dead pay out; who reaches the keep
+  // costs a life (an ogre five).
+  let DT = 0.25
+  let NS = 6 * speed
+  let s0 = merge(base, {cd: range(len(tw)).map(i => base.cd[i] ?? 0)})
+  let film = [s0] + scan(range(NS), (S, j) =>
+    [S.es.map(e => [e.d >= 0 ? max([0] + frz.filter(t => e.d >= t.lo && e.d <= t.hi && any(t.cov, iv => e.d >= iv[0] && e.d <= iv[1])).map(t => t.slow)) * (e.k == 3 ? 0.5 : 1) : 0].map(sv => [e.d + e.v * DT * (1 - sv)].map(nd => [segs.find(g => nd <= g.e) ?? last(segs)].map(g => merge(e, {pd: e.d, ph: e.hp, px: e.x, py: e.y, d: nd, sl: sv > 0, x: g.ax + g.ux * (nd - g.s), y: g.ay + g.uy * (nd - g.s)}))[0])[0])[0])]
+    .map(es1 => reduce(range(len(tw)), (A, ti) => [[tw[ti], (A.cd[ti] ?? 0) - DT]].map(z => z[1] > 0.001 ? merge(A, {cd: set(A.cd, ti, z[1])})
+      : [A.es.filter(e => e.hp > 0 && e.d >= z[0].lo && e.d <= z[0].hi && any(z[0].cov, iv => e.d >= iv[0] && e.d <= iv[1])).sortBy(e => -e.d)].map(tg => len(tg) == 0 ? merge(A, {cd: set(A.cd, ti, 0)})
+      : [tg.take(z[0].ch).map(e => e.i)].map(ids => {
+          es: A.es.map(e => (z[0].k == 1 ? e.hp > 0 && e.d >= 0 && pow(e.x - tg[0].x, 2) + pow(e.y - tg[0].y, 2) <= z[0].sp * z[0].sp : z[0].k == 0 ? e.i == tg[0].i : indexOf(ids, e.i) >= 0) ? merge(e, {hp: e.hp - z[0].dmg}) : e),
+          cd: set(A.cd, ti, z[1] + z[0].per),
+          sh: A.sh + [{k: z[0].k, ax: z[0].x, ay: z[0].y, bx: tg[0].x, by: tg[0].y, r: z[0].r, sp: z[0].sp, p: z[0].k == 3 ? tg.take(z[0].ch).map(e => [e.x, e.y]) : []}]
+        })[0])[0])[0], {es: es1, cd: S.cd, sh: []}))
+    .map(A => {
+      t: S.t + DT,
+      es: A.es.filter(e => e.hp > 0 && e.d < PL),
+      cd: A.cd,
+      sh: A.sh,
+      dd: A.es.filter(e => e.hp <= 0),
+      lk: A.es.filter(e => e.hp > 0 && e.d >= PL),
+      gold: reduce(A.es.filter(e => e.hp <= 0), (s, e) => s + e.g, S.gold),
+      lives: reduce(A.es.filter(e => e.hp > 0 && e.d >= PL), (s, e) => s - (e.k == 3 ? 5 : 1), S.lives),
+      nid: S.nid
+    })[0], s0)
+
+  // Once a second the battle so far becomes the base, and waves come and go.
+  on now {
+    if mode == "play" {
+      let hu = clamp((time - ev) * speed / DT, 0, NS)
+      let hj = floor(hu)
+      let hS = film[hj]
+      ev = time - (hu - hj) * DT / speed
+      if hS.lives <= 0 {
+        base = merge(hS, {lives: 0})
+        best = max(best, wave)
+        overT = time
+        mode = "over"
+      } else if nextAt > 0 && hS.t >= nextAt {
+        // Every fifth wave is a swarm of bats, every tenth brings an ogre; from the third on,
+        // knights march with the slimes, and from the seventh bats too.
+        let hn = wave + 1
+        let hboss = hn % 10 == 0
+        let hswarm = hn % 5 == 0
+        let hcnt = min(40, hboss ? 8 + floor(hn / 3) : hswarm ? 12 + hn : 8 + hn + floor(hn / 4))
+        let hhp = pow(1.12, hn - 1) * (1 + 0.03 * (hn - 1))
+        let hv = 1 + min(0.35, (hn - 1) * 0.01)
+        let hg = 1 + 0.08 * (hn - 1)
+        let hnew = range(hcnt).map(i => [hboss && i == 0 ? 3 : hswarm ? 1 : hn >= 3 && i % 4 == 3 ? 2 : hn >= 7 && i % 5 == 1 ? 1 : 0].map(k => [-(i * (hswarm ? 0.55 : 0.95)) - (hboss && i > 0 ? 1.5 : 0)].map(d => {i: hS.nid + i, k: k, d: d, pd: d, hp: ED[k].hp * hhp, ph: ED[k].hp * hhp, mh: ED[k].hp * hhp, v: ED[k].v * hv, g: round(ED[k].g * hg), x: 1, y: d - 1, px: 1, py: d - 1, sl: false})[0])[0])
+        base = merge(hS, {es: hS.es + hnew, nid: hS.nid + hcnt})
+        wave = hn
+        nextAt = 0
+        msg = hboss ? "OGRE WAVE ${hn}" : hswarm ? "BAT SWARM ${hn}" : "WAVE ${hn}"
+        msgT = time
+      } else if nextAt == 0 && len(hS.es) == 0 && wave > 0 {
+        base = merge(hS, {gold: hS.gold + 15 + 3 * wave})
+        nextAt = hS.t + 8
+        msg = "CLEAR +${15 + 3 * wave}"
+        msgT = time
+      } else {
+        base = hS
+      }
+    }
+  }
+
+  // ---- the rest of the screen ----
+  // A point of the field (x along its 9 cells, y along its rows) is on screen at
+  // FX + (LS ? y : x) * C, FY + (LS ? x : y) * C. FW and FHt are its size on screen.
+  let FW = (LS ? ROWS : COLS) * C
+  let FHt = (LS ? COLS : ROWS) * C
+  let FX = LS ? 8 : floor((SW - FW) / 2)
+  // the panel, its build cards (CC a row) and its upgrade and sell buttons
+  let PX = LS ? FX + FW + 8 : 8
+  let PY = LS ? FY : FY + FHt + 8
+  let PW = LS ? SW - PX - 16 : SW - 16
+  let PH = SH - INS - (LS ? 4 : 8) - PY
+  let CC = LS ? 2 : 4
+  let CWd = (PW - 16 - (CC - 1) * 6) / CC
+  let CY = PY + 26
+  let CH = LS ? min((PH - 40) / 2, 120) : min(PH - 34, 120)
+  let BW = LS ? PW - 16 : min(150, floor(PW * 0.4))
+  let BX = PX + PW - 8 - BW
+  let BH = LS ? min(44, (PH - 24) / 4) : min(52, (PH - 24) / 2)
+  let UY = LS ? PY + PH - 2 * BH - 16 : PY + 8
+  let SY = UY + BH + 8
+  let press = "https://raw.githubusercontent.com/google/fonts/main/ofl/pressstart2p/PressStart2P-Regular.ttf"
+
+  // ---- the art ----------------------------------------------------------------------------------
+  // A letter is a color. Each art is its outline as polygons, then rectangles of the colors inside.
+  let PAL = {o: "#1e1726", Z: "#ffffff", S: "#b7b3c4", s: "#7d7891", d: "#55506a", T: "#b07a45", t: "#7d5232", K: "#2a2238", M: "#4a4a5e", m: "#2e2e3c", C: "#9ff0ff", c: "#3fb6e6", Q: "#e8fdff", U: "#e09a4a", u: "#a8602a", V: "#d7a8ff", v: "#8a4fe0", L: "#86e05a", l: "#4fa83a", B: "#8a5ab8", b: "#55307a", E: "#ff4848", e: "#b02a3a", A: "#d4d8e4", a: "#8a90a6", G: "#7fae4a", g: "#4f7a2e", H: "#e8dcc0", n: "#5a3a22", F: "#d24a3c", I: "#3f8f3a", i: "#2c6a2e", j: "#5fb048", R: "#d24a3c", r: "#962f2f", Y: "#e8c06a", y: "#a8803a"}
+  let archerArt = {o: [[[5, 0], [7, 0], [7, 1], [9, 1], [9, 2], [10, 2], [10, 3], [6, 3], [6, 4], [8, 4], [8, 5], [9, 5], [9, 6], [10, 6], [10, 7], [11, 7], [11, 8], [12, 8], [12, 9], [11, 9], [11, 16], [1, 16], [1, 9], [0, 9], [0, 8], [1, 8], [1, 7], [2, 7], [2, 6], [3, 6], [3, 5], [4, 5], [4, 4], [5, 4]]], r: [[2, 9, 8, 3, "T"], [4, 5, 4, 3, "R"], [2, 7, 8, 1, "R"], [3, 6, 6, 1, "R"], [2, 13, 8, 2, "S"], [2, 12, 8, 1, "y"], [7, 6, 2, 2, "r"], [7, 5, 1, 1, "r"], [9, 7, 1, 1, "r"], [6, 1, 2, 2, "Y"], [8, 2, 1, 1, "Y"], [4, 13, 1, 1, "s"], [8, 13, 1, 1, "s"], [6, 14, 1, 1, "s"], [9, 14, 1, 1, "s"], [9, 9, 1, 3, "t"], [3, 10, 1, 1, "K"], [8, 10, 1, 1, "K"]]}
+  let cannonArt = {o: [[[3, 2], [9, 2], [9, 5], [8, 5], [8, 6], [9, 6], [9, 7], [10, 7], [10, 6], [12, 6], [12, 16], [0, 16], [0, 6], [2, 6], [2, 7], [3, 7], [3, 6], [4, 6], [4, 5], [3, 5]]], r: [[1, 8, 10, 6, "S"], [10, 8, 1, 6, "s"], [3, 10, 1, 1, "s"], [8, 10, 1, 1, "s"], [1, 12, 1, 1, "s"], [8, 12, 1, 1, "s"], [3, 13, 1, 1, "s"], [9, 13, 2, 1, "s"], [1, 9, 10, 1, "y"], [1, 14, 10, 1, "d"], [5, 11, 2, 3, "K"], [5, 3, 3, 1, "K"], [5, 4, 2, 4, "M"], [4, 3, 1, 2, "M"], [7, 3, 1, 1, "M"], [6, 5, 1, 3, "m"], [7, 4, 1, 1, "m"], [1, 7, 1, 1, "R"], [3, 7, 1, 1, "R"], [8, 7, 1, 1, "R"], [10, 7, 1, 1, "R"], [5, 4, 1, 1, "Z"]]}
+  let frostArt = {o: [[[5, 0], [7, 0], [7, 1], [8, 1], [8, 3], [9, 3], [9, 5], [10, 5], [10, 6], [9, 6], [9, 7], [8, 7], [8, 8], [10, 8], [10, 9], [11, 9], [11, 16], [1, 16], [1, 9], [2, 9], [2, 8], [4, 8], [4, 7], [3, 7], [3, 6], [2, 6], [2, 5], [3, 5], [3, 3], [4, 3], [4, 1], [5, 1]]], r: [[2, 10, 8, 4, "S"], [5, 3, 3, 4, "c"], [5, 7, 2, 1, "c"], [5, 12, 2, 1, "c"], [8, 5, 1, 1, "c"], [5, 1, 2, 3, "C"], [4, 4, 2, 2, "C"], [5, 11, 2, 1, "C"], [4, 6, 1, 1, "C"], [2, 9, 8, 1, "y"], [2, 14, 8, 1, "d"], [9, 11, 1, 3, "s"], [8, 10, 1, 1, "s"], [3, 11, 1, 1, "s"], [4, 13, 1, 1, "s"], [7, 13, 1, 1, "s"], [3, 8, 6, 1, "Y"], [5, 1, 1, 2, "Q"], [4, 3, 1, 2, "Q"], [3, 5, 1, 1, "Q"]]}
+  let teslaArt = {o: [[[4, 0], [8, 0], [8, 1], [9, 1], [9, 3], [8, 3], [8, 4], [7, 4], [7, 5], [8, 5], [8, 6], [9, 6], [9, 7], [8, 7], [8, 8], [9, 8], [9, 9], [8, 9], [8, 10], [10, 10], [10, 11], [11, 11], [11, 16], [1, 16], [1, 11], [2, 11], [2, 10], [4, 10], [4, 9], [3, 9], [3, 8], [4, 8], [4, 7], [3, 7], [3, 6], [4, 6], [4, 5], [5, 5], [5, 4], [4, 4], [4, 3], [3, 3], [3, 1], [4, 1]]], r: [[2, 12, 8, 2, "S"], [4, 6, 4, 1, "u"], [4, 8, 4, 1, "u"], [2, 11, 8, 1, "Y"], [2, 14, 8, 1, "d"], [4, 1, 4, 2, "V"], [5, 3, 2, 1, "V"], [5, 5, 2, 1, "U"], [5, 7, 2, 1, "U"], [5, 9, 2, 1, "U"], [7, 2, 1, 1, "v"], [6, 3, 1, 1, "v"], [4, 12, 1, 1, "K"], [7, 12, 1, 1, "K"], [5, 1, 1, 1, "Z"], [8, 13, 1, 1, "s"]]}
+  let slime0Art = {o: [[[3, 0], [7, 0], [7, 1], [8, 1], [8, 2], [9, 2], [9, 4], [10, 4], [10, 8], [9, 8], [9, 9], [1, 9], [1, 8], [0, 8], [0, 4], [1, 4], [1, 2], [2, 2], [2, 1], [3, 1]]], r: [[1, 5, 8, 2, "L"], [3, 1, 4, 3, "L"], [2, 2, 6, 2, "L"], [1, 4, 2, 1, "L"], [4, 4, 2, 1, "L"], [7, 4, 2, 1, "L"], [1, 7, 8, 1, "l"], [2, 6, 1, 1, "l"], [7, 6, 1, 1, "l"], [3, 2, 1, 1, "Z"]]}
+  let slime1Art = {o: [[[3, 1], [7, 1], [7, 2], [9, 2], [9, 3], [10, 3], [10, 9], [0, 9], [0, 3], [1, 3], [1, 2], [3, 2]]], r: [[1, 5, 8, 2, "L"], [1, 3, 8, 1, "L"], [3, 2, 4, 1, "L"], [1, 4, 2, 1, "L"], [4, 4, 2, 1, "L"], [7, 4, 2, 1, "L"], [1, 7, 8, 1, "l"], [2, 6, 1, 1, "l"], [7, 6, 1, 1, "l"], [4, 2, 1, 1, "Z"]]}
+  let bat0Art = {o: [[[0, 0], [1, 0], [1, 1], [2, 1], [2, 2], [3, 2], [3, 3], [4, 3], [4, 2], [8, 2], [8, 3], [9, 3], [9, 2], [10, 2], [10, 1], [11, 1], [11, 0], [12, 0], [12, 4], [11, 4], [11, 5], [10, 5], [10, 6], [9, 6], [9, 7], [8, 7], [8, 8], [4, 8], [4, 7], [3, 7], [3, 6], [2, 6], [2, 5], [1, 5], [1, 4], [0, 4]]], r: [[4, 3, 4, 4, "B"], [2, 4, 8, 1, "B"], [1, 2, 1, 2, "B"], [10, 2, 1, 2, "B"], [3, 5, 6, 1, "B"], [2, 3, 1, 1, "B"], [9, 3, 2, 1, "B"], [4, 4, 1, 1, "E"], [7, 4, 1, 1, "E"], [4, 6, 1, 1, "b"], [7, 6, 1, 1, "b"]]}
+  let bat1Art = {o: [[[4, 2], [8, 2], [8, 3], [9, 3], [9, 4], [11, 4], [11, 5], [12, 5], [12, 8], [10, 8], [10, 7], [9, 7], [9, 6], [8, 6], [8, 7], [7, 7], [7, 8], [5, 8], [5, 7], [4, 7], [4, 6], [3, 6], [3, 7], [2, 7], [2, 8], [0, 8], [0, 5], [1, 5], [1, 4], [3, 4], [3, 3], [4, 3]]], r: [[1, 5, 10, 1, "B"], [4, 3, 4, 2, "B"], [3, 4, 6, 1, "B"], [1, 6, 1, 1, "B"], [10, 6, 1, 1, "B"], [4, 4, 1, 1, "E"], [7, 4, 1, 1, "E"], [5, 6, 2, 1, "b"]]}
+  let knight0Art = {o: [[[4, 0], [6, 0], [6, 1], [7, 1], [7, 2], [8, 2], [8, 3], [9, 3], [9, 6], [8, 6], [8, 7], [9, 7], [9, 8], [10, 8], [10, 10], [9, 10], [9, 11], [8, 11], [8, 12], [6, 12], [6, 11], [4, 11], [4, 12], [2, 12], [2, 11], [1, 11], [1, 10], [0, 10], [0, 8], [1, 8], [1, 7], [2, 7], [2, 6], [1, 6], [1, 3], [2, 3], [2, 2], [3, 2], [3, 1], [4, 1]]], r: [[3, 3, 4, 7, "A"], [2, 3, 6, 3, "A"], [2, 7, 6, 3, "A"], [2, 10, 6, 1, "a"], [1, 8, 1, 2, "a"], [8, 8, 1, 2, "a"], [3, 6, 1, 1, "a"], [6, 6, 1, 1, "a"], [2, 7, 1, 1, "a"], [4, 1, 2, 2, "E"], [3, 4, 4, 1, "K"], [5, 7, 1, 1, "Z"]]}
+  let knight1Art = {o: [[[4, 0], [6, 0], [6, 1], [7, 1], [7, 2], [8, 2], [8, 3], [9, 3], [9, 6], [8, 6], [8, 7], [9, 7], [9, 8], [10, 8], [10, 10], [9, 10], [9, 12], [7, 12], [7, 11], [3, 11], [3, 12], [1, 12], [1, 10], [0, 10], [0, 8], [1, 8], [1, 7], [2, 7], [2, 6], [1, 6], [1, 3], [2, 3], [2, 2], [3, 2], [3, 1], [4, 1]]], r: [[3, 3, 4, 7, "A"], [2, 3, 6, 3, "A"], [2, 7, 6, 3, "A"], [2, 10, 6, 1, "a"], [1, 8, 1, 2, "a"], [8, 8, 1, 2, "a"], [3, 6, 1, 1, "a"], [6, 6, 1, 1, "a"], [2, 7, 1, 1, "a"], [4, 1, 2, 2, "E"], [3, 4, 4, 1, "K"], [5, 7, 1, 1, "Z"]]}
+  let ogre0Art = {o: [[[3, 0], [5, 0], [5, 1], [6, 1], [6, 2], [10, 2], [10, 1], [11, 1], [11, 0], [13, 0], [13, 1], [14, 1], [14, 3], [13, 3], [13, 4], [14, 4], [14, 8], [13, 8], [13, 9], [15, 9], [15, 10], [16, 10], [16, 13], [15, 13], [15, 14], [13, 14], [13, 13], [12, 13], [12, 11], [11, 11], [11, 16], [9, 16], [9, 14], [7, 14], [7, 16], [5, 16], [5, 11], [4, 11], [4, 13], [3, 13], [3, 14], [1, 14], [1, 13], [0, 13], [0, 10], [1, 10], [1, 9], [3, 9], [3, 8], [2, 8], [2, 4], [3, 4], [3, 3], [2, 3], [2, 1], [3, 1]]], r: [[5, 8, 6, 4, "G"], [4, 3, 8, 2, "G"], [3, 6, 10, 1, "G"], [11, 4, 2, 4, "G"], [3, 4, 2, 4, "G"], [7, 5, 2, 1, "G"], [1, 12, 2, 1, "G"], [13, 12, 2, 1, "G"], [4, 8, 8, 1, "G"], [5, 12, 6, 2, "g"], [3, 9, 2, 2, "g"], [11, 9, 2, 2, "g"], [1, 10, 2, 2, "g"], [13, 10, 2, 2, "g"], [5, 14, 2, 1, "g"], [9, 14, 2, 1, "g"], [5, 11, 1, 1, "g"], [10, 11, 1, 1, "g"], [3, 1, 2, 2, "H"], [11, 1, 2, 2, "H"], [4, 7, 1, 1, "H"], [10, 7, 1, 1, "H"], [4, 5, 2, 1, "E"], [10, 5, 2, 1, "E"], [6, 13, 4, 1, "n"]]}
+  let ogre1Art = {o: [[[3, 0], [5, 0], [5, 1], [6, 1], [6, 2], [10, 2], [10, 1], [11, 1], [11, 0], [13, 0], [13, 1], [14, 1], [14, 3], [13, 3], [13, 4], [14, 4], [14, 8], [13, 8], [13, 9], [15, 9], [15, 10], [16, 10], [16, 13], [15, 13], [15, 14], [13, 14], [13, 13], [12, 13], [12, 11], [11, 11], [11, 14], [12, 14], [12, 16], [10, 16], [10, 14], [6, 14], [6, 16], [4, 16], [4, 14], [5, 14], [5, 11], [4, 11], [4, 13], [3, 13], [3, 14], [1, 14], [1, 13], [0, 13], [0, 10], [1, 10], [1, 9], [3, 9], [3, 8], [2, 8], [2, 4], [3, 4], [3, 3], [2, 3], [2, 1], [3, 1]]], r: [[5, 8, 6, 4, "G"], [4, 3, 8, 2, "G"], [3, 6, 10, 1, "G"], [11, 4, 2, 4, "G"], [3, 4, 2, 4, "G"], [7, 5, 2, 1, "G"], [1, 12, 2, 1, "G"], [13, 12, 2, 1, "G"], [4, 8, 8, 1, "G"], [5, 12, 6, 2, "g"], [3, 9, 2, 2, "g"], [11, 9, 2, 2, "g"], [1, 10, 2, 2, "g"], [13, 10, 2, 2, "g"], [4, 14, 2, 1, "g"], [10, 14, 2, 1, "g"], [5, 11, 1, 1, "g"], [10, 11, 1, 1, "g"], [3, 1, 2, 2, "H"], [11, 1, 2, 2, "H"], [4, 7, 1, 1, "H"], [10, 7, 1, 1, "H"], [4, 5, 2, 1, "E"], [10, 5, 2, 1, "E"], [6, 13, 4, 1, "n"]]}
+  let castleArt = {o: [[[6, 0], [7, 0], [7, 1], [10, 1], [10, 2], [11, 2], [11, 3], [7, 3], [7, 4], [8, 4], [8, 6], [9, 6], [9, 5], [10, 5], [10, 4], [12, 4], [12, 20], [0, 20], [0, 4], [2, 4], [2, 5], [3, 5], [3, 6], [4, 6], [4, 4], [6, 4]]], r: [[1, 7, 10, 9, "S"], [1, 16, 2, 3, "S"], [5, 5, 2, 2, "S"], [1, 5, 1, 2, "S"], [10, 5, 1, 2, "S"], [9, 16, 2, 2, "S"], [10, 7, 1, 12, "s"], [3, 9, 1, 1, "s"], [8, 9, 1, 1, "s"], [2, 11, 1, 1, "s"], [3, 13, 1, 1, "s"], [8, 13, 1, 1, "s"], [1, 15, 1, 1, "s"], [4, 15, 1, 1, "s"], [2, 17, 1, 1, "s"], [9, 11, 2, 1, "s"], [9, 15, 2, 1, "s"], [9, 18, 2, 1, "s"], [4, 11, 4, 2, "K"], [4, 17, 4, 2, "K"], [5, 10, 2, 1, "K"], [1, 8, 10, 1, "y"], [7, 1, 2, 2, "F"], [9, 2, 1, 1, "F"]]}
+  let treeArt = {o: [[[4, 0], [8, 0], [8, 1], [9, 1], [9, 2], [10, 2], [10, 3], [11, 3], [11, 5], [12, 5], [12, 8], [11, 8], [11, 9], [10, 9], [10, 10], [8, 10], [8, 13], [9, 13], [9, 14], [3, 14], [3, 13], [4, 13], [4, 10], [2, 10], [2, 9], [1, 9], [1, 8], [0, 8], [0, 5], [1, 5], [1, 3], [2, 3], [2, 2], [3, 2], [3, 1], [4, 1]]], r: [[2, 3, 8, 6, "I"], [5, 2, 4, 1, "I"], [1, 6, 10, 2, "I"], [7, 1, 1, 1, "I"], [9, 5, 2, 3, "i"], [4, 9, 4, 1, "i"], [7, 8, 3, 1, "i"], [8, 3, 1, 1, "i"], [9, 4, 1, 1, "i"], [5, 6, 1, 1, "i"], [4, 8, 1, 1, "i"], [8, 7, 3, 1, "i"], [4, 1, 3, 1, "j"], [3, 2, 2, 1, "j"], [2, 3, 1, 1, "j"], [1, 5, 1, 1, "j"], [5, 10, 2, 4, "T"], [6, 10, 1, 4, "t"]]}
+  let rockArt = {o: [[[3, 0], [7, 0], [7, 1], [8, 1], [8, 2], [9, 2], [9, 3], [10, 3], [10, 5], [9, 5], [9, 6], [8, 6], [8, 7], [2, 7], [2, 6], [1, 6], [1, 5], [0, 5], [0, 3], [1, 3], [1, 2], [2, 2], [2, 1], [3, 1]]], r: [[3, 1, 4, 4, "S"], [1, 3, 8, 2, "S"], [2, 2, 6, 1, "S"], [6, 2, 2, 3, "s"], [6, 1, 1, 1, "s"], [8, 3, 1, 1, "s"], [1, 4, 1, 1, "s"], [5, 4, 4, 1, "s"], [2, 5, 6, 1, "d"], [8, 4, 1, 1, "d"], [3, 2, 1, 1, "Z"]]}
+  let coinArt = {o: [[[1, 0], [6, 0], [6, 1], [7, 1], [7, 6], [6, 6], [6, 7], [1, 7], [1, 6], [0, 6], [0, 1], [1, 1]]], r: [[1, 1, 5, 4, "Y"], [5, 1, 1, 5, "y"], [1, 5, 5, 1, "y"], [4, 4, 2, 1, "y"], [2, 2, 1, 1, "Z"]]}
+  let heartArt = {o: [[[1, 0], [3, 0], [3, 1], [4, 1], [4, 0], [6, 0], [6, 1], [7, 1], [7, 3], [6, 3], [6, 4], [5, 4], [5, 5], [4, 5], [4, 6], [3, 6], [3, 5], [2, 5], [2, 4], [1, 4], [1, 3], [0, 3], [0, 1], [1, 1]]], r: [[2, 2, 3, 2, "E"], [4, 1, 2, 1, "E"], [1, 1, 2, 2, "E"], [5, 2, 1, 1, "e"], [4, 3, 1, 1, "e"], [3, 4, 1, 1, "e"], [1, 1, 1, 1, "Z"]]}
+  let towerArt = [archerArt, cannonArt, frostArt, teslaArt]
+  let enemyArt = [[slime0Art, slime1Art], [bat0Art, bat1Art], [knight0Art, knight1Art], [ogre0Art, ogre1Art]]
+  // art size, and how big an art pixel is against a tower's
+  let enemySize = [[10, 9], [12, 8], [10, 12], [16, 16]]
+  let enemyScale = [0.8, 0.8, 0.85, 1.05]
+  // the roofs and trims of towers as they level up: bronze, silver, gold, obsidian, sun
+  let TIERS = [
+    {R: "#d24a3c", r: "#962f2f", Y: "#e8c06a", y: "#a8803a"},
+    {R: "#4a7ad8", r: "#2f4f9a", Y: "#e4e8f0", y: "#9aa0b4"},
+    {R: "#9a4ad8", r: "#62309a", Y: "#ffd34e", y: "#d0902a"},
+    {R: "#33334a", r: "#1c1c2a", Y: "#7ff0ff", y: "#3fb6e6"},
+    {R: "#ffd34e", r: "#d0902a", Y: "#ffffff", y: "#ffe9a0"}
+  ]
+  let tierPal = TIERS.map(t => merge(PAL, t))
+  let tierGlow = ["#e8c06a", "#c8d8ff", "#ffd34e", "#7ff0ff", "#fff4b0"]
+  let flowerColor = ["#f4f0ff", "#ff9ad0", "#9ad0ff"]
+
+  Canvas {
+    fill: true
+    background: background
+
+    onTap: {
+      if mode == "title" || (mode == "over" && (time - overT > 1.2 || time < overT)) {
+        towers = []
+        base = {t: 0, es: [], cd: [], sh: [], dd: [], lk: [], gold: 200, lives: 20, nid: 0}
+        grows = FIT
+        wave = 0
+        nextAt = 20
+        sel = -1
+        ev = time
+        msg = "BUILD YOUR DEFENSES"
+        msgT = time
+        mode = "play"
+      } else if mode == "play" {
+        let hu = clamp((time - ev) * speed / DT, 0, NS)
+        let hj = floor(hu)
+        let hS = film[hj]
+        let hcx = floor(((LS ? y - FY : x - FX)) / C)
+        let hcy = floor(((LS ? x - FX : y - FY)) / C)
+        let hcell = hcy * COLS + hcx
+        let hti = indexOf(towers.map(t => t.c), sel)
+        if y < FY - 2 && x >= SW - 106 {
+          // send the next wave now, with a bonus for the time left
+          base = merge(hS, {gold: hS.gold + (nextAt > 0 ? 2 * ceil(max(0, nextAt - hS.t)) : 0)})
+          nextAt = hS.t + 0.001
+          ev = time - (hu - hj) * DT / speed
+          haptic()
+        } else if y < FY - 2 && x >= SW - 158 {
+          base = hS
+          speed = 3 - speed
+          ev = time - (hu - hj) * DT / speed
+        } else if hcx >= 0 && hcx < COLS && hcy >= 0 && hcy < ROWS && x >= FX && y >= FY {
+          sel = sel == hcell ? -1 : indexOf(towers.map(t => t.c), hcell) >= 0 || indexOf(blocked, hcell) < 0 ? hcell : -1
+        } else if x >= PX && y >= PY && sel >= 0 && hti < 0 {
+          let hk = floor((x - PX - 8) / (CWd + 6)) + CC * floor((y - CY) / (CH + 6))
+          if x >= PX + 8 && floor((x - PX - 8) / (CWd + 6)) < CC && y >= CY && hk >= 0 && hk < 4 && hS.gold >= KD[hk].cost {
+            base = merge(hS, {gold: hS.gold - KD[hk].cost, cd: hS.cd + [0]})
+            towers = towers + [{c: sel, k: hk, l: 1, sp: KD[hk].cost}]
+            ev = time - (hu - hj) * DT / speed
+            haptic()
+          }
+        } else if x >= PX && y >= PY && hti >= 0 && x >= BX {
+          let ht = towers[hti]
+          let hcost = tw[hti].up
+          if y >= UY && y < UY + BH && hS.gold >= hcost {
+            base = merge(hS, {gold: hS.gold - hcost})
+            towers = set(towers, hti, merge(ht, {l: ht.l + 1, sp: ht.sp + hcost}))
+            ev = time - (hu - hj) * DT / speed
+            haptic()
+          } else if y >= SY && y < SY + BH {
+            base = merge(hS, {gold: hS.gold + tw[hti].sell, cd: remove(hS.cd, hti)})
+            towers = remove(towers, hti)
+            sel = -1
+            ev = time - (hu - hj) * DT / speed
+          }
+        } else if x >= PX && y >= PY {
+          sel = -1
+        }
+      }
+    }
+
+    // ---- where the battle is ----
+    // u is the step the clock is in; F1 is the step being walked into, F0 the one just left.
+    let playing = mode == "play"
+    let u = playing ? clamp((time - ev) * speed / DT, 0, NS - 0.001) : 0
+    let a = floor(u)
+    let fr = playing ? u - a : 1
+    let F0 = film[a]
+    let F1 = playing ? film[a + 1] : film[0]
+    let Fm = playing && a > 0 ? film[a - 1] : {dd: [], lk: []}
+    let q = C / 12
+    let gold = F0.gold
+    let lives = max(0, F0.lives)
+    let selT = indexOf(towers.map(t => t.c), sel)
+
+    // ---- the ground ----
+    clip(FX, FY, FW, FHt) {
+      rect(FX, FY, FW, FHt, fill: "#5a9e45")
+      translate(FX, FY) {
+        // on its side in landscape: turned a quarter and mirrored, x and y swap
+        scale(LS ? -q : q, q, 0, 0) {
+          rotate(LS ? 90 : 0, 0, 0) {
+          for t in tufts {
+            if t[2] == 0 {
+              rect(t[0], t[1] + 1, 3, 1, fill: "#4a8a3a")
+              rect(t[0] + 1, t[1], 1, 1, fill: "#77bf58")
+            } else {
+              rect(t[0], t[1] + 1, 3, 1, fill: flowerColor[t[2] - 1])
+              rect(t[0] + 1, t[1], 1, 3, fill: flowerColor[t[2] - 1])
+              rect(t[0] + 1, t[1] + 1, 1, 1, fill: "#ffd34e")
+            }
+          }
+          // the road: a dark verge, then the dirt
+          for g in segs { rect(min(g.ax, g.bx) * 12, min(g.ay, g.by) * 12, abs(g.bx - g.ax) * 12 + 12, abs(g.by - g.ay) * 12 + 12, fill: "#4c8a3c") }
+          for g in segs { rect(min(g.ax, g.bx) * 12 + 1, min(g.ay, g.by) * 12 + 1, abs(g.bx - g.ax) * 12 + 10, abs(g.by - g.ay) * 12 + 10, fill: "#8a6a44") }
+          for g in segs { rect(min(g.ax, g.bx) * 12 + 2, min(g.ay, g.by) * 12 + 2, abs(g.bx - g.ax) * 12 + 8, abs(g.by - g.ay) * 12 + 8, fill: "#c9a46c") }
+          for p in pebbles { rect(p[0], p[1], 2, 1, fill: "#a8865a") }
+          // the pond, with light on the water and a lily
+          translate(0, (PR - 7) * 12) {
+          rect(75, 85, 18, 22, fill: "#2f6f9a")
+          rect(73, 87, 22, 18, fill: "#2f6f9a")
+          rect(76, 86, 16, 20, fill: "#4aa3df")
+          rect(74, 88, 20, 16, fill: "#4aa3df")
+          rect(78, 91, 12, 10, fill: "#3a8fcc")
+          for k in range(3) { rect(75 + (time * (2 + k) + k * 7) % 15, 89 + k * 5, 3, 1, fill: "#bfe8ff") }
+          rect(85, 98, 4, 3, fill: "#3f8f3a")
+          rect(86, 98, 1, 1, fill: "#ff9ad0")
+          }
+          }
+        }
+      }
+      // the rift the monsters come out of
+      let rx = LS ? FX : FX + 1.5 * C
+      let ry = LS ? FY + 1.5 * C : FY
+      for k in range(4) { circle(rx, ry, (0.62 - k * 0.14 + 0.03 * sin(time * 3 + k)) * C, fill: ["#2a1640", "#5a2a8a", "#9a5ae0", "#e8c8ff"][k]) }
+      for k in range(6) {
+        let ang = time * 2.2 + k * 1.047
+        rect(rx + (LS ? abs(sin(ang)) * 0.4 : cos(ang) * 0.48) * C - q / 2, ry + (LS ? cos(ang) * 0.48 : abs(sin(ang)) * 0.4) * C - q / 2, q, q, fill: "#e8c8ff")
+      }
+    }
+    // trees and rocks
+    for p in trees {
+      translate(FX + (LS ? p[1] : p[0]) * C, FY + (LS ? p[0] : p[1]) * C - 2 * q) {
+        scale(q, q, 0, 0) {
+          for o in treeArt.o { path(o, closed: true, fill: PAL.o) }
+          for r in treeArt.r { rect(r[0], r[1], r[2], r[3], fill: PAL[r[4]]) }
+        }
+      }
+    }
+    for p in rocks {
+      translate(FX + (LS ? p[1] : p[0]) * C + q, FY + (LS ? p[0] : p[1]) * C + 3 * q) {
+        scale(q, q, 0, 0) {
+          for o in rockArt.o { path(o, closed: true, fill: PAL.o) }
+          for r in rockArt.r { rect(r[0], r[1], r[2], r[3], fill: PAL[r[4]]) }
+        }
+      }
+    }
+    // the keep at the end of the road, red when monsters get in
+    translate(FX + (LS ? KY : 8) * C, FY + (LS ? 9 : KY + 1) * C - 20 * q) {
+      scale(q, q, 0, 0) {
+        for o in castleArt.o { path(o, closed: true, fill: PAL.o) }
+        for r in castleArt.r { rect(r[0], r[1], r[2], r[3], fill: PAL[r[4]]) }
+      }
+    }
+    if len(F0.lk) + len(Fm.lk) > 0 {
+      rect(FX + (LS ? KY : 8) * C, FY + (LS ? 9 : KY + 1) * C - 20 * q, C, 20 * q, fill: alpha("#ff3030", 0.45 * (1 - fr)))
+    }
+
+    // the selected cell, and a tower's range
+    if sel >= 0 && playing {
+      let sx = FX + (LS ? floor(sel / COLS) : sel % COLS) * C
+      let sy = FY + (LS ? sel % COLS : floor(sel / COLS)) * C
+      if selT >= 0 {
+        circle(sx + C / 2, sy + C / 2, tw[selT].r * C, fill: alpha("#ffffff", 0.1), stroke: alpha("#ffffff", 0.55), width: q)
+      }
+      rect(sx, sy, C, C, fill: alpha("#ffffff", 0.18 + 0.08 * sin(time * 5)), stroke: "#ffffff", width: q * 0.75)
+    }
+
+    // ---- towers, top row first ----
+    for t in tw.sortBy(t => t.c) {
+      let tier = min(4, floor((t.l - 1) / 3))
+      let tx = FX + (LS ? t.y : t.x) * C
+      let ty = FY + (LS ? t.x : t.y) * C - 4 * q
+      if tier >= 2 {
+        circle(tx + C / 2, ty + 9 * q, (6.5 + 0.6 * sin(time * 3 + t.c)) * q, fill: alpha(tierGlow[tier], 0.22))
+      }
+      translate(tx, ty) {
+        scale(q, q, 0, 0) {
+          for o in towerArt[t.k].o { path(o, closed: true, fill: PAL.o) }
+          for r in towerArt[t.k].r { rect(r[0], r[1], r[2], r[3], fill: tierPal[tier][r[4]]) }
+          if t.k == 3 { circle(6, 2, 2.6 + 0.6 * sin(time * 8 + t.c), fill: alpha("#e0c0ff", 0.35)) }
+          if t.k == 2 { circle(6, 4, 3.5 + 0.5 * sin(time * 3 + t.c), fill: alpha("#bff6ff", 0.25)) }
+          for i in range((t.l - 1) % 3 + 1) { rect(3.5 + i * 2 - ((t.l - 1) % 3) + 1.5, 16.6, 1.2, 1.2, fill: tierGlow[tier]) }
+        }
+      }
+    }
+
+    clip(FX, FY, FW, FHt) {
+      // ---- monsters ----
+      for e in F1.es + F1.dd + F1.lk {
+        let lx = lerp(e.px, e.x, fr)
+        let ly = lerp(e.py, e.y, fr)
+        let ex = FX + ((LS ? ly : lx) + 0.5) * C
+        let ey = FY + ((LS ? lx : ly) + 0.5) * C
+        if ly > -1 {
+          let s = enemyScale[e.k] * q
+          let sz = enemySize[e.k]
+          let fly = e.k == 1 ? (3 + sin(time * 7 + e.i) * 1.5) * q : 0
+          let foot = ey + 0.22 * C
+          rect(ex - sz[0] * s * 0.35, foot - q * 0.6, sz[0] * s * 0.7, q * 1.2, fill: alpha("#14301a", 0.35))
+          translate(ex - sz[0] * s / 2, foot - fly - sz[1] * s) {
+            scale(s, s, 0, 0) {
+              for o in enemyArt[e.k][floor(time * (e.k == 1 ? 8 : 4) + e.i * 0.37) % 2].o { path(o, closed: true, fill: e.sl ? "#1e4a66" : PAL.o) }
+              for r in enemyArt[e.k][floor(time * (e.k == 1 ? 8 : 4) + e.i * 0.37) % 2].r { rect(r[0], r[1], r[2], r[3], fill: e.sl && r[4] != "E" ? mix(PAL[r[4]], "#9fe8ff", 0.45) : PAL[r[4]]) }
+            }
+          }
+          if e.ph < e.mh {
+            let bw = sz[0] * s
+            let by = foot - fly - sz[1] * s - 2.5 * q
+            rect(ex - bw / 2 - q / 2, by - q / 2, bw + q, 2 * q, fill: "#1e1726")
+            rect(ex - bw / 2, by, bw * clamp(e.ph / e.mh, 0, 1), q, fill: e.ph / e.mh > 0.5 ? "#6fe05a" : e.ph / e.mh > 0.25 ? "#ffd34e" : "#ff5a4a")
+          }
+        }
+      }
+
+      // ---- shots on their way ----
+      for s in F1.sh {
+        let sx = FX + ((LS ? s.ay : s.ax) + 0.5) * C
+        let sy = FY + ((LS ? s.ax : s.ay) + 0.5) * C - 0.55 * C
+        let bx = FX + ((LS ? s.by : s.bx) + 0.5) * C
+        let by = FY + ((LS ? s.bx : s.by) + 0.5) * C
+        let cx = lerp(sx, bx, fr)
+        if s.k == 0 {
+          let cy = lerp(sy, by, fr) - sin(fr * 3.14) * 0.25 * C
+          let dl = max(1, sqrt(pow(bx - sx, 2) + pow(by - sy, 2)))
+          line(cx - (bx - sx) / dl * 5 * q, cy - (by - sy) / dl * 5 * q, cx, cy, stroke: "#f4e6c8", width: q * 0.8)
+          rect(cx - q * 0.6, cy - q * 0.6, q * 1.2, q * 1.2, fill: "#e0e4f0")
+        } else if s.k == 1 {
+          let cy = lerp(sy, by, fr) - sin(fr * 3.14) * 0.9 * C
+          circle(cx, cy, 1.7 * q, fill: "#2a2a3a")
+          rect(cx - 0.8 * q, cy - 0.9 * q, 0.7 * q, 0.7 * q, fill: "#9a9ab4")
+        }
+      }
+      // ---- and landing ----
+      for s in F0.sh {
+        let sx = FX + ((LS ? s.ay : s.ax) + 0.5) * C
+        let sy = FY + ((LS ? s.ax : s.ay) + 0.5) * C
+        let bx = FX + ((LS ? s.by : s.bx) + 0.5) * C
+        let by = FY + ((LS ? s.bx : s.by) + 0.5) * C
+        if s.k == 0 && fr < 0.4 {
+          for k in range(3) { rect(bx + cos(k * 2.1) * fr * 6 * q, by + sin(k * 2.1) * fr * 6 * q - 3 * q, q, q, fill: "#fff4c8") }
+        } else if s.k == 1 {
+          circle(bx, by, (0.3 + fr * s.sp) * C, fill: alpha("#ff8a30", 0.55 * (1 - fr)))
+          circle(bx, by, (0.2 + fr * 0.35) * C, fill: alpha("#ffe9a0", 0.85 * (1 - fr)))
+          for k in range(6) { rect(bx + cos(k * 1.05) * fr * s.sp * C, by + sin(k * 1.05) * fr * s.sp * C - sin(fr * 3.14) * 4 * q, 1.4 * q, 1.4 * q, fill: alpha("#5a3a22", 1 - fr)) }
+        } else if s.k == 2 {
+          circle(sx, sy, s.r * C * (0.25 + 0.75 * fr), fill: alpha("#aef4ff", 0.12 * (1 - fr)), stroke: alpha("#dffcff", 0.7 * (1 - fr)), width: 1.2 * q)
+        } else if s.k == 3 && fr < 0.7 {
+          let pts = [[sx, sy - 0.8 * C]] + s.p.map(p => [FX + ((LS ? p[1] : p[0]) + 0.5) * C, FY + ((LS ? p[0] : p[1]) + 0.5) * C - 0.2 * C])
+          let zz = flatten(range(len(pts) - 1).map(i => [pts[i], [(pts[i][0] + pts[i + 1][0]) / 2 + (hash(i, floor(time * 24)) - 0.5) * 0.6 * C, (pts[i][1] + pts[i + 1][1]) / 2 + (hash(i, floor(time * 24), 1) - 0.5) * 0.6 * C]])) + [last(pts)]
+          path(zz, stroke: alpha("#b583ff", 1 - fr), width: 2.6 * q, cap: round)
+          path(zz, stroke: alpha("#ffffff", 1 - fr), width: q, cap: round)
+          for p in pts.drop(1) { circle(p[0], p[1], 2.2 * q * (1 - fr), fill: alpha("#e9d5ff", 0.8)) }
+        }
+      }
+      // ---- the fallen: a puff, and their gold rising ----
+      for g in [[F0.dd, fr], [Fm.dd, 1 + fr]] {
+        for d in g[0] {
+          let ag = g[1] / 2
+          let dx = FX + ((LS ? d.y : d.x) + 0.5) * C
+          let dy = FY + ((LS ? d.x : d.y) + 0.5) * C
+          for k in range(6) { rect(dx + cos(k * 1.05 + d.i) * ag * 0.6 * C - q, dy + sin(k * 1.05 + d.i) * ag * 0.6 * C - q, 2 * q * (1 - ag), 2 * q * (1 - ag), fill: alpha("#f0f0f0", 1 - ag)) }
+          text("+${d.g}", dx + 1, dy - ag * 0.7 * C - 0.3 * C + 1, size: 7, color: alpha("#2a1838", 1 - ag), font: press, align: center)
+          text("+${d.g}", dx, dy - ag * 0.7 * C - 0.3 * C, size: 7, color: alpha("#ffd34e", 1 - ag), font: press, align: center)
+        }
+      }
+    }
+    // a red edge when one gets in
+    if len(F0.lk) > 0 {
+      rect(FX, FY, FW, FHt, stroke: alpha("#ff3030", 0.6 * (1 - fr)), width: 3 * q)
+    }
+
+    // ---- the wave banner ----
+    if playing && time - msgT < 2.2 {
+      let mt = time - msgT
+      let ma = min(1, mt * 4, (2.2 - mt) * 3)
+      let my = FY + FHt * 0.42 - (1 - min(1, mt * 4)) * 10
+      rect(FX, my - 18, FW, 36, fill: alpha(background, 0.7 * ma))
+      text(msg, FX + FW / 2 + 2, my + 2, size: 14, color: alpha(background, ma), font: press, align: center)
+      text(msg, FX + FW / 2, my, size: 14, color: alpha(accent, ma), font: press, align: center)
+    }
+
+    // ---- the top bar ----
+    rect(0, 0, SW, FY - 4, fill: background)
+    rect(0, FY - 4, SW, 2, fill: border)
+    let hy = TOP + 20
+    translate(14, hy - 7) { scale(2, 2, 0, 0) { for o in coinArt.o { path(o, closed: true, fill: PAL.o) }  for r in coinArt.r { rect(r[0], r[1], r[2], r[3], fill: PAL[r[4]]) } } }
+    text(fmtNum(gold, {compact: gold >= 100000}), 34, hy + 1, size: 10, color: yellow, font: press)
+    translate(100, hy - 6) { scale(2, 2, 0, 0) { for o in heartArt.o { path(o, closed: true, fill: PAL.o) }  for r in heartArt.r { rect(r[0], r[1], r[2], r[3], fill: PAL[r[4]]) } } }
+    text("${lives}", 118, hy + 1, size: 10, color: red, font: press)
+    text("WAVE", 154, hy - 6, size: 6, color: muted, font: press)
+    text("${wave}", 154, hy + 6, size: 10, color: foreground, font: press)
+    if playing {
+      // speed
+      rect(SW - 156, TOP + 6, 44, 28, fill: speed == 2 ? alpha(accent, 0.35) : surface)
+      rect(SW - 156, TOP + 6, 44, 2, fill: alpha(foreground, 0.15))
+      rect(SW - 156, TOP + 32, 44, 2, fill: alpha("#000000", 0.35))
+      text(speed == 2 ? "x2" : "x1", SW - 134, TOP + 20, size: 9, color: foreground, font: press, align: center)
+      // the next wave
+      rect(SW - 106, TOP + 6, 92, 28, fill: nextAt > 0 ? green : orange)
+      rect(SW - 106, TOP + 6, 92, 2, fill: alpha("#ffffff", 0.3))
+      rect(SW - 106, TOP + 32, 92, 2, fill: alpha("#000000", 0.35))
+      text(nextAt > 0 ? "GO ${max(0, ceil(nextAt - F0.t))}" : "+WAVE", SW - 60, TOP + 20, size: 9, color: background, font: press, align: center)
+    }
+
+    // ---- the panel ----
+    rect(PX, PY, PW, PH, fill: surface, stroke: border, width: 2)
+    rect(PX + 2, PY + 2, PW - 4, 2, fill: alpha(foreground, 0.06))
+    if playing && sel >= 0 && selT < 0 {
+      text("BUILD A TOWER", PX + 10, PY + 13, size: 8, color: muted, font: press)
+      for k in range(4) {
+        let cx = PX + 8 + k % CC * (CWd + 6)
+        let cy = CY + floor(k / CC) * (CH + 6)
+        let ok = gold >= KD[k].cost
+        let ts = min((CH - 34) / 16, (CWd - 12) / 12)
+        rect(cx, cy, CWd, CH, fill: ok ? alpha(foreground, 0.06) : alpha(foreground, 0.02), stroke: ok ? accent : border, width: 2)
+        layer(ok ? 1 : 0.4) {
+          translate(cx + CWd / 2 - 6 * ts, cy + 6) {
+            scale(ts, ts, 0, 0) {
+              for o in towerArt[k].o { path(o, closed: true, fill: PAL.o) }
+              for r in towerArt[k].r { rect(r[0], r[1], r[2], r[3], fill: tierPal[0][r[4]]) }
+            }
+          }
+          text(KD[k].n, cx + CWd / 2, cy + CH - 22, size: 6, color: foreground, font: press, align: center)
+          text("${KD[k].cost}", cx + CWd / 2, cy + CH - 10, size: 8, color: yellow, font: press, align: center)
+        }
+      }
+    } else if playing && selT >= 0 {
+      let t = tw[selT]
+      let tier = min(4, floor((t.l - 1) / 3))
+      let ts = LS ? min((UY - PY - 20) / 18, 3, (PW - 100) / 12) : min((PH - 20) / 18, 4)
+      translate(PX + 10, PY + 10) {
+        scale(ts, ts, 0, 0) {
+          for o in towerArt[t.k].o { path(o, closed: true, fill: PAL.o) }
+          for r in towerArt[t.k].r { rect(r[0], r[1], r[2], r[3], fill: tierPal[tier][r[4]]) }
+        }
+      }
+      let ix = PX + 20 + 12 * ts
+      text(KD[t.k].n, ix, PY + 16, size: 9, color: foreground, font: press)
+      text("LEVEL ${t.l}", ix, PY + 32, size: 8, color: tierGlow[tier], font: press)
+      text("DMG ${fmtNum(t.dmg, {compact: t.dmg >= 10000})}", ix, PY + 50, size: 7, color: muted, font: press)
+      text("RANGE ${fixed(t.r, 1)}", ix, PY + 64, size: 7, color: muted, font: press)
+      text(t.k == 2 ? "SLOW ${round(t.slow * 100)}%" : t.k == 1 ? "SPLASH ${fixed(t.sp, 1)}" : t.k == 3 ? "CHAIN ${t.ch}" : "${fixed(1 / t.per, 1)}/S", ix, PY + 78, size: 7, color: muted, font: press)
+      let can = gold >= t.up
+      rect(BX, UY, BW, BH, fill: can ? green : alpha(foreground, 0.04), stroke: can ? green : border, width: 2)
+      text("UPGRADE", BX + BW / 2, UY + BH / 2 - 7, size: 8, color: can ? background : muted, font: press, align: center)
+      text("${fmtNum(t.up, {compact: t.up >= 100000})}", BX + BW / 2, UY + BH / 2 + 8, size: 8, color: can ? background : muted, font: press, align: center)
+      rect(BX, SY, BW, BH, fill: alpha(red, 0.25), stroke: red, width: 2)
+      text("SELL", BX + BW / 2, SY + BH / 2 - 7, size: 8, color: foreground, font: press, align: center)
+      text("+${fmtNum(t.sell, {compact: t.sell >= 100000})}", BX + BW / 2, SY + BH / 2 + 8, size: 8, color: yellow, font: press, align: center)
+    } else if playing {
+      text(nextAt > 0 ? "WAVE ${wave + 1} IN ${max(0, ceil(nextAt - F0.t))}" : "WAVE ${wave}: ${len(F0.es)} LEFT", PX + PW / 2, PY + 22, size: 10, color: foreground, font: press, align: center)
+      // who comes next
+      let nw = wave + 1
+      let kinds = nw % 10 == 0 ? [3, 1] : nw % 5 == 0 ? [1] : nw >= 7 ? [0, 2, 1] : nw >= 3 ? [0, 2] : [0]
+      let ks = min(4, (PH - 110) / 18, PW / 80)
+      text("NEXT", PX + PW / 2, PY + 44, size: 6, color: muted, font: press, align: center)
+      for k, i in kinds {
+        let sz = enemySize[k]
+        translate(PX + PW / 2 + (i - (len(kinds) - 1) / 2) * 22 * ks - sz[0] * ks / 2, PY + 56 + (16 - sz[1]) * ks) {
+          scale(ks, ks, 0, 0) {
+            for o in enemyArt[k][floor(time * 3 + i) % 2].o { path(o, closed: true, fill: PAL.o) }
+            for r in enemyArt[k][floor(time * 3 + i) % 2].r { rect(r[0], r[1], r[2], r[3], fill: PAL[r[4]]) }
+          }
+        }
+      }
+      text("TAP GRASS TO BUILD", PX + PW / 2, PY + PH - 48, size: 6, color: muted, font: press, align: center)
+      text("TAP A TOWER TO UPGRADE", PX + PW / 2, PY + PH - 36, size: 6, color: muted, font: press, align: center)
+      if best > 0 { text("BEST WAVE ${best}", PX + PW / 2, PY + PH - 16, size: 7, color: accent, font: press, align: center) }
+    }
+
+    // ---- title and game over ----
+    if mode == "title" {
+      rect(0, 0, SW, SH, fill: alpha(background, 0.7))
+      let ty = FY + FHt * (LS ? 0.15 : 0.3)
+      text("BASTION", SW / 2 + 3, ty + 3, size: 30, color: alpha("#000000", 0.5), font: press, align: center)
+      text("BASTION", SW / 2, ty, size: 30, color: accent, font: press, align: center)
+      text("ENDLESS TOWER DEFENSE", SW / 2, ty + 34, size: 8, color: foreground, font: press, align: center)
+      for k in range(4) {
+        translate(SW / 2 + (k - 1.5) * 64 - 18, ty + 64 + sin(time * 2 + k) * 3) {
+          scale(3, 3, 0, 0) {
+            for o in towerArt[k].o { path(o, closed: true, fill: PAL.o) }
+            for r in towerArt[k].r { rect(r[0], r[1], r[2], r[3], fill: tierPal[k][r[4]]) }
+          }
+        }
+      }
+      if time % 1.2 < 0.8 { text("TAP TO START", SW / 2, ty + 150, size: 10, color: foreground, font: press, align: center) }
+      if best > 0 { text("BEST WAVE ${best}", SW / 2, ty + 172, size: 8, color: accent, font: press, align: center) }
+    } else if mode == "over" {
+      rect(0, 0, SW, SH, fill: alpha(background, 0.75))
+      let ty = FY + FHt * (LS ? 0.15 : 0.32)
+      text("THE KEEP", SW / 2 + 2, ty + 2, size: 20, color: alpha("#000000", 0.5), font: press, align: center)
+      text("THE KEEP", SW / 2, ty, size: 20, color: red, font: press, align: center)
+      text("HAS FALLEN", SW / 2 + 2, ty + 30, size: 20, color: alpha("#000000", 0.5), font: press, align: center)
+      text("HAS FALLEN", SW / 2, ty + 28, size: 20, color: red, font: press, align: center)
+      text("YOU HELD ${wave} WAVES", SW / 2, ty + 66, size: 9, color: foreground, font: press, align: center)
+      text("BEST ${best}", SW / 2, ty + 86, size: 9, color: accent, font: press, align: center)
+      if (time - overT > 1.2 || time < overT) && time % 1.2 < 0.8 { text("TAP TO PLAY AGAIN", SW / 2, ty + 120, size: 9, color: foreground, font: press, align: center) }
+    }
+  }
+}
