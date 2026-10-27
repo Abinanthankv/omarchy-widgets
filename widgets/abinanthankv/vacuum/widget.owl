@@ -1,5 +1,5 @@
 widget "vacuum" {
-  meta { description: "Your Xiaomi robot vacuum over your own wi-fi: battery, state, start, stop, dock, modes, a drive pad, and its floor plan drawn on the phone with rooms you tap to clean. A Mi login fetches the map."; version: "1.2.0"; license: "MIT"; category: "home"; owl: 9 }
+  meta { description: "Your Xiaomi robot vacuum over your own wi-fi: battery, state, start, stop, dock, modes, a drive pad, and its floor plan drawn on the phone with rooms you tap to clean. A Mi login fetches the map."; version: "1.2.1"; license: "MIT"; category: "home"; owl: 9 }
   size: 6x4
   minSize: 2x2
 
@@ -27,7 +27,7 @@ if [ ! -f "$f" ]; then
 fi
 d=~/.cache/omarchy-vacuum
 mkdir -p "$d"
-if [ "$(cat "$d/tag" 2>/dev/null)" != "d5a0c7e312b4" ]; then
+if [ "$(cat "$d/tag" 2>/dev/null)" != "57f4643fcadd" ]; then
   cat > "$d/vacuum.py" <<'OMARCHY_VACUUM_PY'
 #!/usr/bin/env python3
 # vacuum.py - dependency-free LAN client for Xiaomi "ijai" robot vacuums.
@@ -837,30 +837,55 @@ def parse_map(proto: bytes) -> dict:
     }
 
 
-def _rect_cover(grid: bytes, sx: int, sy: int, step: int,
+def _rect_cover(grid: bytes, sx: int, sy: int,
                 max_rects: int) -> dict[int, list[list[int]]]:
     '''Every room's cells as a short list of rectangles (x, y, w, h in cells).
 
-    One pass over the grid, every `step`th row, letting a room's rectangle grow
-    downwards while the next row still has cells of that room in it. The first
-    version only merged a row whose run was *identical* to the run above, and a
-    room's edge moves by a cell or two row to row (walls, doorways, map noise),
-    so nearly every row started a new rectangle: the plan came out as thin
-    stripes with gaps between them, and the `max_rects` cap then dropped whole
-    corners of rooms.
+    One pass over the grid, one row at a time, letting a room's rectangle grow
+    downwards only while the next run's left and right edges stay within a few
+    cells of the rectangle's *first* run and the union still holds only this
+    room. The first-run anchor stops a slow drift from walking a rectangle
+    across its neighbour; the grid check stops a small tolerance from covering
+    a doorway or the gap in an L-, T- or U-shaped room. Anything else starts a
+    new rectangle.
 
-    Any overlap with the rectangle above continues it, and the rectangle grows
-    to their union, so a room lands on a couple of solid blocks. These are the
-    fallback drawing and the map's hit test; the picture itself is rendered
-    from the grid (see `render_plan_png`).
+    The earlier version continued a rectangle whenever a lower run overlapped
+    it, and grew it to the union. A hallway that wraps around the living room
+    has a full-width top row, so both lower arms overlapped it and the whole
+    hallway became one box around the living room; a tap in a corner then chose
+    the hallway. With the edge and grid checks the arms stay separate and a
+    tap can only select the room actually under it.
+
+    These rectangles are the fallback drawing and the map's hit test; the
+    picture itself is rendered from the grid (see `render_plan_png`).
     '''
+    edge_tol = 2                         # map cells, not screen pixels
     rects: dict[int, list[list[int]]] = {}
-    last: dict[int, list[list[int]]] = {}
-    for y in range(0, sy, step):
+    # Each entry keeps the rectangle's first run, which is the anchor its later
+    # rows are compared with.
+    last: dict[int, list[tuple[list[int], int, int]]] = {}
+
+    def same_room(rid: int, x0: int, x1: int, y0: int, y1: int) -> bool:
+        '''True when every cell in this half-open box is still this room.'''
+        for yy in range(y0, y1):
+            base = yy * sx
+            for xx in range(x0, x1):
+                cell = grid[base + xx]
+                if ROOM_MIN <= cell <= ROOM_MAX:
+                    got = cell
+                elif CLEAN_MIN <= cell <= CLEAN_MAX:
+                    got = cell - CLEAN_MIN + ROOM_MIN
+                else:
+                    got = -1
+                if got != rid:
+                    return False
+        return True
+
+    for y in range(sy):
         row = y * sx
         runs: list[tuple[int, int, int]] = []
         prev, start = -1, 0
-        for x in range(0, sx, step):
+        for x in range(sx):
             cell = grid[row + x]
             if ROOM_MIN <= cell <= ROOM_MAX:
                 rid = cell
@@ -875,24 +900,37 @@ def _rect_cover(grid: bytes, sx: int, sy: int, step: int,
         if prev >= 0:
             runs.append((prev, start, sx))
 
-        cur: dict[int, list[list[int]]] = {}
+        cur: dict[int, list[tuple[list[int], int, int]]] = {}
         for rid, x0, x1 in runs:
-            best = None
-            for rect in last.get(rid, []):
+            items = last.get(rid, [])
+            best: tuple[int, int, list[int], int, int] | None = None
+            for i, (rect, ax0, ax1) in enumerate(items):
+                if abs(x0 - ax0) > edge_tol or abs(x1 - ax1) > edge_tol:
+                    continue
                 over = min(x1, rect[0] + rect[2]) - max(x0, rect[0])
-                if over > 0 and (best is None or over > best[0]):
-                    best = (over, rect)
+                if over <= 0:
+                    continue
+                # Only the strips the old rectangle did not already prove are
+                # this room need checking: new columns above, and old columns
+                # outside the current run.
+                left, right = min(x0, rect[0]), max(x1, rect[0] + rect[2])
+                if not (same_room(rid, left, rect[0], rect[1], y)
+                        and same_room(rid, rect[0] + rect[2], right, rect[1], y)
+                        and same_room(rid, left, x0, y, y + 1)
+                        and same_room(rid, x1, right, y, y + 1)):
+                    continue
+                if best is None or over > best[0]:
+                    best = (over, i, rect, ax0, ax1)
             if best is not None:                         # continue that rectangle
-                rect = best[1]
-                right = max(x1, rect[0] + rect[2])
-                rect[0] = min(x0, rect[0])
-                rect[2] = right - rect[0]
-                rect[3] = y + step - rect[1]
-                cur.setdefault(rid, []).append(rect)
+                _, i, rect, ax0, ax1 = best
+                items.pop(i)                 # one run may feed only one rect
+                left, right = min(x0, rect[0]), max(x1, rect[0] + rect[2])
+                rect[0], rect[2], rect[3] = left, right - left, y + 1 - rect[1]
+                cur.setdefault(rid, []).append((rect, ax0, ax1))
             elif len(rects.get(rid, [])) < max_rects:
-                rect = [x0, y, x1 - x0, step]
+                rect = [x0, y, x1 - x0, 1]
                 rects.setdefault(rid, []).append(rect)
-                cur.setdefault(rid, []).append(rect)
+                cur.setdefault(rid, []).append((rect, x0, x1))
             # else: this room already has enough rectangles to hit-test with
         last = cur
     return rects
@@ -1113,7 +1151,7 @@ def render_plan_png(m: dict, geo: dict) -> Path | None:
     return path
 
 
-def map_geometry(proto: bytes, step: int = 2, max_rects: int = 24,
+def map_geometry(proto: bytes, max_rects: int = 64,
                  max_path: int = 400) -> dict:
     '''The protobuf as geometry the widget can draw: rooms, path, poses, 0..1.'''
     m = parse_map(proto)
@@ -1129,7 +1167,7 @@ def map_geometry(proto: bytes, step: int = 2, max_rects: int = 24,
     def ny(y: float) -> float:          # map y -> 0..1 down, flipped for the screen
         return min(1.0, max(0.0, 1.0 - (y - m["minY"]) / span_y))
 
-    covers = _rect_cover(m["grid"], sx, sy, step, max_rects)
+    covers = _rect_cover(m["grid"], sx, sy, max_rects)
     cleaned = sorted({v - CLEAN_MIN + ROOM_MIN
                       for v in set(m["grid"]) if CLEAN_MIN <= v <= CLEAN_MAX})
     # Cell counts give the real cleanable area of an L-shaped room; width and
@@ -1282,10 +1320,10 @@ def cmd_map_refit(cfg: dict) -> int:
 
     A widget update can change the view without changing the map: the window
     used to be square, which wasted the empty side margins and drew a portrait
-    floor plan small, the room rectangles were merged too strictly (thin
-    stripes with gaps), and older caches carry no picture of their own. The
-    blob is still on disk, so the whole geometry is decoded again from it -
-    nothing goes to the network - and `fit` makes it a one-shot migration.
+    floor plan small, the room rectangles need their edge checks rebuilt, and
+    older caches carry no picture of their own. The blob is still on disk, so
+    the whole geometry is decoded again from it - nothing goes to the network -
+    and `fit` makes it a one-shot migration.
     '''
     if not MAP_JSON.is_file():
         print(json.dumps({"ok": False, "error": "no map cache to refit"}))
@@ -2711,7 +2749,7 @@ def main(argv=None) -> int:
 if __name__ == "__main__":
     sys.exit(main())
 OMARCHY_VACUUM_PY
-  printf '%s' 'd5a0c7e312b4' > "$d/tag"
+  printf '%s' '57f4643fcadd' > "$d/tag"
 fi
 python3 "$d/vacuum.py" status
   """) every 30s json timeout 60s
