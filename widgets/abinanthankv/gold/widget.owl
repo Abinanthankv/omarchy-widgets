@@ -1,7 +1,7 @@
 widget "gold" {
   size: 4x3
   minSize: 3x2
-  meta { owl: 13; description: "Gold and silver rates in India: 24K and 22K per gram and per 10 g, silver per gram and per kg, the change since yesterday, and a year of history as a chart or a list, for 160-odd cities"; version: "1.0"; license: "MIT"; category: "finance" }
+  meta { owl: 13; description: "Gold and silver rates in India: 24K and 22K per gram and per 10 g, silver per gram and per kg, the change since yesterday, and a year of history as a chart or a list, for 160-odd cities"; version: "1.1"; license: "MIT"; category: "finance" }
 
   // Rates come from goodreturns.in, one page per city and metal: today's rate and the last ten days.
   // Older days are kept here as they pass, and the year before them comes from Yahoo's Gold BeES and
@@ -69,23 +69,22 @@ widget "gold" {
     est: true
   }))
 
-  // Both merge the same way, under the city they came from: a real rate wins over an estimate for its day.
-  on rates first {
-    let base = reduce(days, (acc, r) => set(acc, "${city}|${r.key}", set(r, "c", city)), saved ?? {})
-    saved = reduce(est, (acc, r) => get(acc, "${city}|${r.key}", null) == null ? set(acc, "${city}|${r.key}", set(r, "c", city)) : acc, base)
-  }
-  on etf first {
-    let base = reduce(days, (acc, r) => set(acc, "${city}|${r.key}", set(r, "c", city)), saved ?? {})
-    saved = reduce(est, (acc, r) => get(acc, "${city}|${r.key}", null) == null ? set(acc, "${city}|${r.key}", set(r, "c", city)) : acc, base)
-  }
-  on srates first {
-    let base = reduce(sdays, (acc, r) => set(acc, "${city}|${r.key}", set(r, "c", city)), savedAg ?? {})
-    savedAg = reduce(sest, (acc, r) => get(acc, "${city}|${r.key}", null) == null ? set(acc, "${city}|${r.key}", set(r, "c", city)) : acc, base)
-  }
-  on setf first {
-    let base = reduce(sdays, (acc, r) => set(acc, "${city}|${r.key}", set(r, "c", city)), savedAg ?? {})
-    savedAg = reduce(sest, (acc, r) => get(acc, "${city}|${r.key}", null) == null ? set(acc, "${city}|${r.key}", set(r, "c", city)) : acc, base)
-  }
+  // The merge, in one place: what the two saved maps become from whatever the sources hold. A real
+  // rate wins over an estimate for its day, and every row sits under the city it came from.
+  let auMerged = reduce(est, (acc, r) => get(acc, "${city}|${r.key}", null) == null ? set(acc, "${city}|${r.key}", set(r, "c", city)) : acc, reduce(days, (acc, r) => set(acc, "${city}|${r.key}", set(r, "c", city)), saved ?? {}))
+  let agMerged = reduce(sest, (acc, r) => get(acc, "${city}|${r.key}", null) == null ? set(acc, "${city}|${r.key}", set(r, "c", city)) : acc, reduce(sdays, (acc, r) => set(acc, "${city}|${r.key}", set(r, "c", city)), savedAg ?? {}))
+
+  // Each source saves its first value and the later ones: `on x` alone skips the first, and `on x
+  // first` alone runs only once per start, which left a city picked later without its history, and
+  // stopped new days from being saved while the launcher kept running.
+  on rates first { saved = auMerged }
+  on rates { saved = auMerged }
+  on etf first { saved = auMerged }
+  on etf { saved = auMerged }
+  on srates first { savedAg = agMerged }
+  on srates { savedAg = agMerged }
+  on setf first { savedAg = agMerged }
+  on setf { savedAg = agMerged }
 
   let isAg = metal == "silver"
   let au = values(saved ?? {}).filter(r => r.c == city).sortBy(r => r.t)
